@@ -1,0 +1,11 @@
+# download cache and outputs
+data/*
+!data/.gitkeep
+results/*
+!results/.gitkeep
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj

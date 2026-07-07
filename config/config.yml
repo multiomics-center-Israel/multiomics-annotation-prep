@@ -1,0 +1,36 @@
+# Configuration for multiomic-annotation-prep.
+# Enable the modules you need and fill in the organism-specific inputs.
+# Run:  Rscript scripts/run_all.R --config config/config.yml
+
+out_dir:   results     # where the .tab files are written
+cache_dir: data        # download cache (re-used across runs)
+refresh:   false       # true = re-download all remote files
+expand_go: true        # expand GO annotations to parental terms
+
+modules:
+
+  # --- primary path: non-model organism (transcriptome + KAAS) ------------
+  kegg_nonmodel:
+    enabled: true
+    kaas:  examples/query.ko.txt      # KAAS output (gene<TAB>KO)
+    strip_isoform: true               # collapse _iN isoforms to gene level
+
+  go_nonmodel:
+    enabled: true
+    go_table: examples/trinotate_go.txt   # per-gene GO table (Trinotate style)
+
+  # --- model organism with a genome in Ensembl ----------------------------
+  ensembl:
+    enabled: false
+    dataset:  mmusculus_gene_ensembl
+    mart:     ensembl
+    host:     null                    # e.g. https://may2024.archive.ensembl.org
+    kegg_org: mmu                     # KEGG organism code (null to skip KEGG)
+    id_source: ensembl                # id space for KEGG mapping
+
+  # --- proteome in UniProt (proteomics) -----------------------------------
+  uniprot:
+    enabled: false
+    taxon_id: 10090
+    reviewed: true                    # Swiss-Prot only
+    kegg_org: mmu                     # null to skip KEGG

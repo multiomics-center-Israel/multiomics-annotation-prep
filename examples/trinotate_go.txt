@@ -1,0 +1,4 @@
+TRINITY_DN101478_c0_g1	GO:0006096^biological_process^glycolytic process`GO:0005524^molecular_function^ATP binding
+TRINITY_DN10259_c5_g1	GO:0004347^molecular_function^glucose-6-phosphate isomerase activity
+TRINITY_DN10322_c0_g1	GO:0006006^biological_process^glucose metabolic process,GO:0005737^cellular_component^cytoplasm
+TRINITY_DN3005_c1_g2	GO:0005524^molecular_function^ATP binding

@@ -4,12 +4,6 @@ data/*
 results/*
 !results/.gitkeep
 
-# R
-.Rhistory
-.RData
-.Rproj.user/
-*.Rproj
-
 # Python
 __pycache__/
 *.pyc

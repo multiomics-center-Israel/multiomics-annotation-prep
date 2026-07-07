@@ -70,7 +70,6 @@ config/config.yml          # which modules run + their inputs
 examples/                  # tiny inputs so the tool runs end-to-end
 data/                      # download cache (git-ignored)
 results/                   # output files (git-ignored)
-R/                         # original R implementation (kept for reference)
 ```
 
 ## How to run

@@ -1,6 +1,6 @@
 # Configuration for multiomic-annotation-prep.
 # Enable the modules you need and fill in the organism-specific inputs.
-# Run:  Rscript scripts/run_all.R --config config/config.yml
+# Run:  python scripts/run_all.py --config config/config.yml
 
 out_dir:   results     # where the .tab files are written
 cache_dir: data        # download cache (re-used across runs)

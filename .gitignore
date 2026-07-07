@@ -9,3 +9,8 @@ results/*
 .RData
 .Rproj.user/
 *.Rproj
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

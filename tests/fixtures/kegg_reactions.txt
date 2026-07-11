@@ -1,0 +1,36 @@
+ENTRY       R00299                      Reaction
+NAME        ATP:D-glucose 6-phosphotransferase;
+DEFINITION  ATP + C00031 <=> C00008 + C00668
+EQUATION    C00002 + C00031 <=> C00008 + C00668
+ENZYME      2.7.1.1         2.7.1.2         2.7.1.63
+PATHWAY     rn00010  Glycolysis / Gluconeogenesis
+            rn00052  Galactose metabolism
+///
+ENTRY       R00771                      Reaction
+NAME        D-glucose-6-phosphate aldose-ketose-isomerase;
+DEFINITION  C00668 <=> C00085
+EQUATION    C00668 <=> C00085
+ENZYME      5.3.1.9
+PATHWAY     rn00010  Glycolysis / Gluconeogenesis
+///
+ENTRY       R00200                      Reaction
+NAME        ATP:pyruvate 2-O-phosphotransferase;
+DEFINITION  ATP + C00074 <=> C00008 + C00022
+EQUATION    C00002 + C00074 <=> C00008 + C00022
+ENZYME      2.7.1.40
+PATHWAY     rn00010  Glycolysis / Gluconeogenesis
+///
+ENTRY       R01786                      Reaction
+NAME        D-glucose-6-phosphate ketol-isomerase;
+DEFINITION  C00668 <=> C05345
+EQUATION    C00668 <=> C05345
+ENZYME      5.3.1.9
+PATHWAY     rn00010  Glycolysis / Gluconeogenesis
+///
+ENTRY       R02110                      Reaction
+NAME        (1->4)-alpha-D-glucan:phosphate alpha-D-glucosyltransferase;
+DEFINITION  C00369 <=> C00668
+EQUATION    C00369 <=> C00668
+ENZYME      2.4.1.1
+PATHWAY     rn00500  Starch and sucrose metabolism
+///

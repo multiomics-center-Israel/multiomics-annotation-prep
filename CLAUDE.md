@@ -55,22 +55,36 @@ All writers are centralized in `src/utils.py` (`write_*` functions).
 src/
   __init__.py
   utils.py                 # logging, ensure_dir, cached_download, write_* (OUTPUT FORMAT lives here)
-  download_kegg.py         # KEGG REST downloads + parsers (ko->name, ko->path, path->name)
+  download_kegg.py         # KEGG REST downloads + parsers (ko/path gene-sets AND cpd/rn/pathway entities)
   download_kegg_org.py     # KEGG for a specific organism code (model organisms)
   prepare_kegg_nonmodel.py # KAAS query.ko.txt -> KEGG enrichment + annot files  [PRIMARY]
   download_go.py           # GO term names/namespaces (go-basic.obo parser + ancestor graph)
   prepare_go.py            # per-gene GO table -> expanded GO enrichment files    [PRIMARY]
   prepare_ensembl.py       # pybiomart path (model organisms)                     [secondary]
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
+  masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
+  prepare_mummichog_model.py # KEGG org code -> mummichog metabolic model JSON + manifest  [NEW output type]
 scripts/
   run_kegg_nonmodel.py     # CLI wrapper (argparse)
   run_go.py                # CLI wrapper
+  run_mummichog_model.py   # CLI wrapper for the mummichog model
   run_all.py               # config-driven driver (reads config/config.yml)
 config/config.yml          # which modules run + their inputs
+requirements-mummichog.txt # scoped, pinned optional deps for the mummichog model only
+tests/                     # pytest: masses, KEGG parsers, model assembly, mummichog smoke
 examples/                  # tiny inputs so the tool runs end-to-end
 data/                      # download cache (git-ignored)
 results/                   # output files (git-ignored)
 ```
+
+The **mummichog metabolic model** is a separate, COMPOUND-centric output type
+(compounds w/ neutral formula+mass, real substrate/product reactions,
+pathways-of-reactions) consumed by `mummichog -n <model>.json`. It is NOT derived
+from the gene sets; it is pulled from KEGG cpd/rn/pathway entities and serialized
+to the metDataModel shape. Contract: `MODEL_CONTRACT.md`. Its deps
+(`metDataModel`, `mass2chem`, `mummichog`) are optional imports scoped to this
+module (`requirements-mummichog.txt`) so the gene-set modules stay `requests`+
+`pyyaml`-only.
 
 ## How to run
 

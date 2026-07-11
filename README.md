@@ -36,6 +36,14 @@ For **descriptive annotation** (result tables / Excel):
 |------|---------|
 | `KEGG_annot_genes.txt` | per-gene KO, names, EC, pathways |
 
+For **mummichog** metabolomics pathway analysis (a **compound-centric**
+metabolic model, distinct from the gene-set files above):
+
+| File | Content |
+|------|---------|
+| `<org>_<source>_<date>.json` | metabolic model (compounds + reactions + pathways) for `mummichog -n` |
+| `<org>_<source>_<date>.manifest.json` | provenance, counts, sha256, validation |
+
 ---
 
 ## Primary use case: non-model organism (transcriptome / KAAS)
@@ -86,6 +94,39 @@ periodically, since KEGG/GO are updated frequently.
 
 ---
 
+## Metabolic model for mummichog (compound-centric)
+
+A separate, self-contained module builds an organism-specific **metabolic model**
+for the [mummichog](http://mummichog.org) metabolomics pathway tool. Unlike the
+gene-set files above, this model is **compound-centric**: compounds carry a
+neutral formula + neutral monoisotopic mass, reactions carry real
+substrate/product links, and pathways carry lists of reactions. It is pulled
+directly from KEGG compound/reaction/pathway entities and serialized to the
+[metDataModel](https://github.com/shuzhao-li/metDataModel) shape that
+`mummichog -n <model>.json` consumes (verified against mummichog 2.7.0).
+
+```bash
+# scoped optional deps (do NOT affect the gene-set modules)
+pip install -r requirements-mummichog.txt
+
+# build a model from a KEGG organism code (e.g. cre = Chlamydomonas reinhardtii,
+# used here as a surrogate for Coelastrella, which is not in KEGG)
+python scripts/run_mummichog_model.py \
+    --kegg-code       cre \
+    --model-organism  "Chlamydomonas reinhardtii" \
+    --target-organism "Coelastrella sp." \
+    --out results --cache data --validate
+```
+
+This writes `cre_kegg_<date>.json` + `cre_kegg_<date>.manifest.json`. The
+manifest records that the model organism is **cre (a relative)**, not
+Coelastrella, so the surrogate is transparent in results/publication. `--validate`
+additionally runs `mummichog -n` on a synthetic feature table and records the
+outcome. The input source (`kegg_org` vs a future `kaas` path for non-model
+organisms) is a config choice under `mummichog_model:` in `config/config.yml`.
+
+---
+
 ## Source modules
 
 | Module | File | Use when | Auto-downloads |
@@ -94,6 +135,7 @@ periodically, since KEGG/GO are updated frequently.
 | GO (non-model)   | `src/prepare_go.py`           | Trinotate GO         | GO term names + hierarchy |
 | Ensembl/BioMart  | `src/prepare_ensembl.py`      | genome in Ensembl    | BioMart attributes, KEGG map |
 | UniProt          | `src/prepare_uniprot.py`      | proteome in UniProt  | UniProt REST, KEGG map |
+| mummichog model  | `src/prepare_mummichog_model.py` | metabolomics (`mummichog -n`) | KEGG compounds/reactions/pathways |
 
 The non-model KEGG + GO modules are the primary, fully-featured path. Ensembl
 and UniProt modules cover model organisms and share the same writers/output
@@ -112,13 +154,17 @@ multiomic-annotation-prep/
 │   ├── download_go.py           # GO term/hierarchy downloads (cached)
 │   ├── prepare_go.py            # GO table -> expanded GO enrichment files
 │   ├── prepare_ensembl.py       # Ensembl/BioMart path (model organisms)
-│   └── prepare_uniprot.py       # UniProt path (proteomics)
+│   ├── prepare_uniprot.py       # UniProt path (proteomics)
+│   ├── masses.py                # neutral monoisotopic mass (via mass2chem)
+│   └── prepare_mummichog_model.py  # KEGG -> mummichog metabolic model (JSON)
 ├── scripts/
 │   ├── run_kegg_nonmodel.py
 │   ├── run_go.py
+│   ├── run_mummichog_model.py
 │   └── run_all.py               # config-driven, runs selected modules
 ├── config/config.yml
 ├── examples/                    # tiny inputs so it runs out of the box
+├── tests/                       # pytest (parsers, masses, model, mummichog smoke)
 ├── data/                        # download cache (git-ignored)
 └── results/                     # output files (git-ignored)
 ```
@@ -127,6 +173,9 @@ multiomic-annotation-prep/
 
 Python (>= 3.8) with: `requests`, `pyyaml` (install via pip).
 The Ensembl module additionally requires `pybiomart`.
+The mummichog metabolic-model module has its own **scoped, pinned** optional
+deps in `requirements-mummichog.txt` (`metDataModel`, `mass2chem`, and
+`mummichog` for validation) — the gene-set modules do not need them.
 
 ## Credit
 

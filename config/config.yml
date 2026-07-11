@@ -34,3 +34,18 @@ modules:
     taxon_id: 10090
     reviewed: true                    # Swiss-Prot only
     kegg_org: mmu                     # null to skip KEGG
+
+  # --- mummichog metabolic model (compound-centric; for `mummichog -n`) ----
+  # NEW output type, independent of the gene-set modules above. Needs the
+  # scoped optional deps:  pip install -r requirements-mummichog.txt
+  mummichog_model:
+    enabled: false
+    source: kegg_org                  # kegg_org (built) | kaas (planned seam)
+    kegg_code: cre                    # KEGG organism code to build from
+    model_organism: "Chlamydomonas reinhardtii"   # what the model IS
+    model_kegg_code: cre              # KEGG code recorded for the model
+    target_organism: "Coelastrella sp."   # biology it stands in for (null if same)
+    source_version: null              # override; else auto-detected from KEGG
+    date: null                        # YYYYMMDD; else today (UTC)
+    validate: false                   # run `mummichog -n` smoke test (needs mummichog)
+    # kaas: examples/query.ko.txt     # (future) KO list for --source kaas

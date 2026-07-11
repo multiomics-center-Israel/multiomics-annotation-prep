@@ -1,3 +1,12 @@
-kegg             Kyoto Encyclopedia of Genes and Genomes
-kegg             Release 116.0+/07-11, Jul 25
-                 Kanehisa Laboratories
+kegg	KEGG (Kyoto Encyclopedia of Genes and Genomes)
+	pathway        587  2026/07/03
+	brite          205  2026/07/07
+	module         573  2026/06/11
+	ko          28,350  2026/07/07
+	genome      27,000  2026/07/05
+	compound    19,584  2026/07/06
+	glycan       11,220  2026/06/20
+	reaction    12,409  2026/07/07
+	rclass       3,200  2026/07/01
+	enzyme       8,400  2026/07/02
+	Kanehisa Laboratories

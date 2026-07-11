@@ -11,8 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.download_kegg import (  # noqa: E402
     iter_kegg_records,
+    kegg_snapshot_version,
     parse_compound_record,
-    parse_kegg_release,
+    parse_kegg_info_dates,
     parse_ko_reaction_links,
     parse_org_ko_links,
     parse_org_pathways,
@@ -83,6 +84,15 @@ def test_ko_to_reaction_step():
     assert ko2rxn.get("K99999") is None  # coverage gap
 
 
-def test_kegg_release_parsed():
-    # canonical release comes from info/kegg
-    assert parse_kegg_release(os.path.join(FIX, "info_kegg.txt")) == "KEGG Release 116.0"
+def test_kegg_info_dates_and_snapshot():
+    # info/kegg no longer has a release number, only per-database dates
+    dates = parse_kegg_info_dates(os.path.join(FIX, "info_kegg.txt"))
+    assert dates["pathway"] == "2026-07-03"
+    assert dates["reaction"] == "2026-07-07"
+    assert dates["compound"] == "2026-07-06"
+    # snapshot = newest across pathway/reaction/compound
+    assert kegg_snapshot_version(dates) == "KEGG snapshot 2026-07-07"
+
+
+def test_kegg_snapshot_empty_when_no_dates():
+    assert kegg_snapshot_version({}) is None

@@ -76,7 +76,7 @@ def test_meta_data_records_surrogate(built_model):
     assert md["target_organism"] == "Coelastrella sp."
     assert md["model_is_surrogate"] is True
     assert md["source"] == "KEGG REST"
-    assert md["source_version"] == "KEGG Release 116.0"
+    assert md["source_version"] == "KEGG snapshot 2026-07-07"
 
 
 def test_compounds_have_required_neutral_fields(built_model):
@@ -176,6 +176,13 @@ def test_manifest_records_ko_coverage(built_model):
     assert cov["n_reactions_from_kos"] == 5  # R00299,R00771,R01786,R00200,R02110
 
 
+def test_manifest_records_kegg_snapshot_dates(built_model):
+    _, manifest = built_model
+    dates = manifest["build_details"]["kegg_db_dates"]
+    assert dates == {"pathway": "2026-07-03", "reaction": "2026-07-07",
+                     "compound": "2026-07-06"}
+
+
 def test_kaas_source_builds_from_ko_file(tmp_path, monkeypatch):
     """The KAAS path is the same KO-list pipeline, KOs read from a file and
     pathways taken from the KEGG-wide reference maps (organism not in KEGG)."""
@@ -211,7 +218,7 @@ def test_kaas_source_builds_from_ko_file(tmp_path, monkeypatch):
     assert {p["id"] for p in model["list_of_pathways"]} == {"map00010"}
     assert {r["id"] for r in model["list_of_reactions"]} == {"R00299", "R00771", "R00200"}
     assert model["meta_data"]["source"] == "KEGG REST (KAAS KO list)"
-    assert model["meta_data"]["source_version"] == "KEGG Release 116.0"
+    assert model["meta_data"]["source_version"] == "KEGG snapshot 2026-07-07"
     cov = manifest["build_details"]["ko_coverage"]
     assert cov["n_kos"] == 4                 # K99999 has no reaction
     assert cov["n_kos_with_reaction"] == 3

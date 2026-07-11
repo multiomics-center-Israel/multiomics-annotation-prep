@@ -43,8 +43,9 @@ from .download_kegg import (
     download_ko_reaction_links,
     iter_kegg_records,
     kegg_get_batched,
+    kegg_snapshot_version,
     parse_compound_record,
-    parse_kegg_release,
+    parse_kegg_info_dates,
     parse_ko_reaction_links,
     parse_org_ko_links,
     parse_org_pathways,
@@ -167,13 +168,17 @@ def load_source(source, kegg_code, cache_dir, refresh=False, kaas_file=None):
         pathway_prefix, source_str = "map", "KEGG REST (KAAS KO list)"
     log_msg("  candidate pathways: ", len(pathway_names))
 
-    # KEGG release is DB-wide; info/kegg always carries it (info/<org> can vary).
-    source_version = None
+    # info/kegg no longer has a release number, only per-database snapshot dates;
+    # provenance is the newest date across the dbs this model is built from.
+    source_version, kegg_db_dates = None, {}
     try:
-        source_version = parse_kegg_release(
+        all_dates = parse_kegg_info_dates(
             download_kegg_info("kegg", cache_dir, refresh))
+        source_version = kegg_snapshot_version(all_dates)
+        kegg_db_dates = {db: all_dates.get(db)
+                         for db in ("pathway", "reaction", "compound")}
     except Exception as exc:  # noqa: BLE001 - version is best-effort, not fatal
-        log_msg("  (KEGG release version unavailable: ", exc, ")")
+        log_msg("  (KEGG snapshot date unavailable: ", exc, ")")
 
     return {
         "reactions": reactions,
@@ -182,6 +187,7 @@ def load_source(source, kegg_code, cache_dir, refresh=False, kaas_file=None):
         "pathway_prefix": pathway_prefix,
         "source": source_str,
         "source_version": source_version,
+        "kegg_db_dates": kegg_db_dates,
         "ko_coverage": {
             "n_genes": ko_meta.get("n_genes"),
             "n_kos": len(ko_list),
@@ -534,6 +540,7 @@ def prepare_mummichog_model(kegg_code, out_dir, cache_dir, *,
         "build_details": {
             "compounds_dropped_no_mass": counts["compounds_dropped_no_mass"],
             "reactions_dropped_unmapped": counts["reactions_dropped_unmapped"],
+            "kegg_db_dates": src.get("kegg_db_dates", {}),
             "ko_coverage": src.get("ko_coverage", {}),
         },
         "mass_spotcheck": spotcheck,

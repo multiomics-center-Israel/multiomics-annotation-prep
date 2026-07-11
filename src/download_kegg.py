@@ -216,19 +216,35 @@ def parse_org_pathways(path):
 
 
 def download_kegg_info(target, cache_dir, refresh=False):
-    """info/<target>: used (best-effort) to record the KEGG release version."""
+    """info/<target>: used (best-effort) to record the KEGG snapshot dates."""
     url = f"https://rest.kegg.jp/info/{target}"
     return cached_download(url, f"kegg_info_{target}.txt", cache_dir, refresh)
 
 
-def parse_kegg_release(path):
-    """Extract a 'KEGG Release ...' string from an info/<target> file, or None."""
+# db line, e.g. "compound    19,584  2026/07/06"  (no release number anymore)
+_KEGG_INFO_DB = re.compile(r"^\s*([a-z_]+)\s+[\d,]+\s+(\d{4})/(\d{2})/(\d{2})\s*$")
+
+
+def parse_kegg_info_dates(path):
+    """Parse info/kegg -> {db_name: 'YYYY-MM-DD'} from the per-database lines.
+
+    Current info/kegg carries no release number; each database line is
+    ``<name>   <count>   <YYYY/MM/DD>`` (pathway, ko, compound, reaction, ...).
+    """
+    dates = {}
     with open(path) as f:
         for line in f:
-            m = re.search(r"Release\s+(\d+(?:\.\d+)?)", line)
+            m = _KEGG_INFO_DB.match(line)
             if m:
-                return f"KEGG Release {m.group(1)}"
-    return None
+                dates[m.group(1)] = f"{m.group(2)}-{m.group(3)}-{m.group(4)}"
+    return dates
+
+
+def kegg_snapshot_version(dates, dbs=("pathway", "reaction", "compound")):
+    """'KEGG snapshot <newest date>' across *dbs* (the databases this model is
+    built from), or None if no dates were found."""
+    picked = [dates[d] for d in dbs if d in dates] or list(dates.values())
+    return f"KEGG snapshot {max(picked)}" if picked else None
 
 
 def iter_kegg_records(text):

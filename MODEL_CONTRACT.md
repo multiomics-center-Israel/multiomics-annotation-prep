@@ -21,11 +21,13 @@ serialization. Target shape (verify exact field names against the installed
 
 ```jsonc
 {
-  "id": "ame_kegg_20260711",           // model id (matches filename stem)
+  "id": "cre_kegg_20260711",           // model id (matches filename stem)
   "version": "20260711",
   "meta_data": {
-    "organism": "Apis mellifera",
-    "kegg_organism_code": "ame",
+    "model_organism": "Chlamydomonas reinhardtii",  // what the model IS
+    "model_kegg_code": "cre",
+    "target_organism": "Coelastrella sp.",          // the biology it stands in for
+    "model_is_surrogate": true,                     // true when model != target
     "source": "KEGG REST",             // or "GEM:<id>@<version>"
     "source_version": "KEGG release 110.0",
     "builder_version": "<git SHA of builder repo>"
@@ -48,7 +50,7 @@ serialization. Target shape (verify exact field names against the installed
   ],
   "list_of_pathways": [
     {
-      "id": "ame00010",
+      "id": "cre00010",
       "name": "Glycolysis / Gluconeogenesis",
       "list_of_reactions": ["R00299"]   // reaction ids
     }
@@ -74,10 +76,12 @@ Fully under our control; the pipeline reads this to pin + verify.
 
 ```jsonc
 {
-  "model_file": "ame_kegg_20260711.json",
+  "model_file": "cre_kegg_20260711.json",
   "sha256": "<64-hex checksum of the model file>",
-  "organism": "Apis mellifera",
-  "kegg_organism_code": "ame",
+  "model_organism": "Chlamydomonas reinhardtii",
+  "model_kegg_code": "cre",
+  "target_organism": "Coelastrella sp.",   // biology the model stands in for
+  "model_is_surrogate": true,              // true when model_organism != target_organism
   "source": "KEGG REST",
   "source_version": "KEGG release 110.0",
   "build_timestamp_utc": "2026-07-11T09:00:00Z",
@@ -108,10 +112,11 @@ Pipeline config pins an exact model, e.g.:
 ```yaml
 modes:
   metabolomics:
-    organism: "Apis mellifera"
+    organism: "Coelastrella sp."          # the real sample organism
 mummichog:
   model_ref:
-    url: "https://github.com/<org>/<builder-repo>/releases/download/ame_kegg_20260711/ame_kegg_20260711.json"
+    model_organism: "Chlamydomonas reinhardtii (cre)"   # surrogate model actually used
+    url: "https://github.com/<org>/<builder-repo>/releases/download/cre_kegg_20260711/cre_kegg_20260711.json"
     sha256: "<expected checksum>"
 ```
 

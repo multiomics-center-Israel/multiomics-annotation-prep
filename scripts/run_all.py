@@ -91,6 +91,26 @@ def main():
             refresh=refresh,
         )
 
+    # mummichog metabolic model (compound-centric; new output type)
+    mcg = modules.get("mummichog_model", {})
+    if mcg.get("enabled", False):
+        from src.prepare_mummichog_model import prepare_mummichog_model
+        log_msg("=== Module: mummichog_model ===")
+        prepare_mummichog_model(
+            kegg_code=mcg.get("kegg_code"),
+            out_dir=out_dir,
+            cache_dir=cache_dir,
+            source=mcg.get("source", "kegg_org"),
+            model_organism=mcg.get("model_organism"),
+            model_kegg_code=mcg.get("model_kegg_code"),
+            target_organism=mcg.get("target_organism"),
+            source_version=mcg.get("source_version"),
+            date=mcg.get("date"),
+            refresh=refresh,
+            validate=mcg.get("validate", False),
+            kaas_file=mcg.get("kaas"),
+        )
+
     log_msg("=== All modules done ===")
 
 

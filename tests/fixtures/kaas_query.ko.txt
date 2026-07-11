@@ -1,0 +1,5 @@
+contig_00001_i1	K00844
+contig_00002_i1	K01810
+contig_00003_i2	K00873
+contig_00004_i1	
+contig_00005_i1	K99999

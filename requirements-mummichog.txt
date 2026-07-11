@@ -1,0 +1,14 @@
+# Optional, module-scoped dependencies for the mummichog metabolic-model builder
+# (src/prepare_mummichog_model.py, src/masses.py). The gene-set modules do NOT
+# need these -- they only require the packages in requirements.txt.
+#
+#   pip install -r requirements-mummichog.txt
+#
+# Pinned to the versions the module was verified against.
+
+metDataModel==0.6.1     # MetabolicModel structure (core_simple; pandas-free)
+mass2chem==0.5.0        # neutral monoisotopic mass computation (numpy, scipy)
+
+# Needed only to VALIDATE a built model (run `mummichog -n` + smoke test / tests).
+# Not needed just to build the model JSON.
+mummichog==2.7.0

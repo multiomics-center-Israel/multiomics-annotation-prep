@@ -84,4 +84,5 @@ def test_ko_to_reaction_step():
 
 
 def test_kegg_release_parsed():
-    assert parse_kegg_release(os.path.join(FIX, "info_cre.txt")) == "KEGG Release 110.0"
+    # canonical release comes from info/kegg
+    assert parse_kegg_release(os.path.join(FIX, "info_kegg.txt")) == "KEGG Release 116.0"

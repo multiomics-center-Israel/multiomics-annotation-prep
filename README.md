@@ -111,6 +111,11 @@ list comes from. (KEGG does not link organism genes directly to reactions, so
 the organism's reactions are resolved via KO: `link/ko/<code>` intersected with
 `link/reaction/ko`.)
 
+> **Run this in a clean virtualenv, not `conda base`.** A broken Intel MKL in an
+> Anaconda `base` environment can crash the `mummichog -n` validation step (numpy
+> import fault). Use `python -m venv .venv && source .venv/bin/activate` (or a
+> dedicated conda env) before installing.
+
 ```bash
 # scoped optional deps (do NOT affect the gene-set modules)
 pip install -r requirements-mummichog.txt

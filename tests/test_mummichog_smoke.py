@@ -40,7 +40,7 @@ def _build(tmp_path, monkeypatch):
                                      else "ref_pathways.txt"))
     monkeypatch.setattr(pm, "download_kegg_info",
                         lambda target, cache, refresh=False:
-                        os.path.join(FIX, "info_cre.txt"))
+                        os.path.join(FIX, "info_kegg.txt"))
     model_path, manifest_path = pm.prepare_mummichog_model(
         kegg_code="cre", out_dir=str(tmp_path), cache_dir=str(tmp_path),
         model_organism="Chlamydomonas reinhardtii",

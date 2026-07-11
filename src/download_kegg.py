@@ -225,7 +225,7 @@ def parse_kegg_release(path):
     """Extract a 'KEGG Release ...' string from an info/<target> file, or None."""
     with open(path) as f:
         for line in f:
-            m = re.search(r"Release\s+(\d+\.\d+)", line)
+            m = re.search(r"Release\s+(\d+(?:\.\d+)?)", line)
             if m:
                 return f"KEGG Release {m.group(1)}"
     return None

@@ -58,6 +58,21 @@ PROTON = 1.00727646677  # matches mummichog.config.PROTON
 SOURCE_TOKENS = {"kegg_org": "kegg", "kaas": "kaas"}
 
 
+def _is_metabolic_map(number):
+    """True for a real metabolic pathway map (KEGG ``00xxx``, i.e. 00001-00999).
+
+    Excludes KEGG's "Global and overview maps" (the 01100-01299 band: Metabolic
+    pathways, Biosynthesis of secondary metabolites, Carbon metabolism,
+    Biosynthesis of amino acids, ...) and any non-metabolic category. Those
+    overview maps aggregate many pathways and distort mummichog enrichment, so
+    they are kept out of the model's pathway list.
+    """
+    try:
+        return 0 < int(number) < 1000
+    except (TypeError, ValueError):
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Source loading. Both the organism-code path and the KAAS path reduce to the
 # SAME shape: a KO list -> reactions -> compounds -> pathways. The only thing
@@ -152,10 +167,11 @@ def load_source(source, kegg_code, cache_dir, refresh=False, kaas_file=None):
         pathway_prefix, source_str = "map", "KEGG REST (KAAS KO list)"
     log_msg("  candidate pathways: ", len(pathway_names))
 
+    # KEGG release is DB-wide; info/kegg always carries it (info/<org> can vary).
     source_version = None
     try:
         source_version = parse_kegg_release(
-            download_kegg_info(kegg_code or "kegg", cache_dir, refresh))
+            download_kegg_info("kegg", cache_dir, refresh))
     except Exception as exc:  # noqa: BLE001 - version is best-effort, not fatal
         log_msg("  (KEGG release version unavailable: ", exc, ")")
 
@@ -245,6 +261,8 @@ def assemble_model(reactions, compounds, pathway_names, *,
     pw_rxns = defaultdict(set)
     for rid, nums in rxn_refpaths.items():
         for num in nums:
+            if not _is_metabolic_map(num):  # drop global/overview maps
+                continue
             pid = f"{pathway_prefix}{num}"
             if pid in pathway_names:
                 pw_rxns[pid].add(rid)

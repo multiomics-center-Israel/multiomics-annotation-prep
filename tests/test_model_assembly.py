@@ -42,7 +42,7 @@ def built_model(tmp_path, monkeypatch):
                                      else "ref_pathways.txt"))
     monkeypatch.setattr(pm, "download_kegg_info",
                         lambda target, cache, refresh=False:
-                        os.path.join(FIX, "info_cre.txt"))
+                        os.path.join(FIX, "info_kegg.txt"))
 
     model_path, manifest_path = pm.prepare_mummichog_model(
         kegg_code="cre", out_dir=str(tmp_path), cache_dir=str(tmp_path),
@@ -76,7 +76,7 @@ def test_meta_data_records_surrogate(built_model):
     assert md["target_organism"] == "Coelastrella sp."
     assert md["model_is_surrogate"] is True
     assert md["source"] == "KEGG REST"
-    assert md["source_version"] == "KEGG Release 110.0"
+    assert md["source_version"] == "KEGG Release 116.0"
 
 
 def test_compounds_have_required_neutral_fields(built_model):
@@ -131,6 +131,21 @@ def test_pathways_reference_existing_reactions(built_model):
             assert rid in rxn_ids
 
 
+# KEGG "Global and overview maps" (01100-01299) that must never appear.
+OVERVIEW_MAPS = ["01100", "01110", "01200", "01210", "01212", "01230",
+                 "01232", "01240", "01250"]
+
+
+def test_global_overview_maps_excluded(built_model):
+    model, _ = built_model
+    pids = {p["id"] for p in model["list_of_pathways"]}
+    # the fixtures deliberately include cre01100 / cre01200 in the pathway list
+    # and on reaction records; none of the overview maps may survive
+    for num in OVERVIEW_MAPS:
+        assert f"cre{num}" not in pids
+    assert all(int(p["id"][3:]) < 1000 for p in model["list_of_pathways"])
+
+
 def test_manifest_counts_and_checksum(built_model):
     import hashlib
     model, manifest = built_model
@@ -178,7 +193,7 @@ def test_kaas_source_builds_from_ko_file(tmp_path, monkeypatch):
                                      else "ref_pathways.txt"))
     monkeypatch.setattr(pm, "download_kegg_info",
                         lambda target, cache, refresh=False:
-                        os.path.join(FIX, "info_cre.txt"))
+                        os.path.join(FIX, "info_kegg.txt"))
 
     model_path, manifest_path = pm.prepare_mummichog_model(
         kegg_code=None, out_dir=str(tmp_path), cache_dir=str(tmp_path),
@@ -191,10 +206,12 @@ def test_kaas_source_builds_from_ko_file(tmp_path, monkeypatch):
         model = json.load(f)
     with open(manifest_path) as f:
         manifest = json.load(f)
-    # reference (map#####) pathways, since a non-model organism has none of its own
+    # reference (map#####) pathways, since a non-model organism has none of its
+    # own; the overview map (map01100/map01200) is filtered out here too
     assert {p["id"] for p in model["list_of_pathways"]} == {"map00010"}
     assert {r["id"] for r in model["list_of_reactions"]} == {"R00299", "R00771", "R00200"}
     assert model["meta_data"]["source"] == "KEGG REST (KAAS KO list)"
+    assert model["meta_data"]["source_version"] == "KEGG Release 116.0"
     cov = manifest["build_details"]["ko_coverage"]
     assert cov["n_kos"] == 4                 # K99999 has no reaction
     assert cov["n_kos_with_reaction"] == 3

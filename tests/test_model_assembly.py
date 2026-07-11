@@ -27,15 +27,19 @@ def built_model(tmp_path, monkeypatch):
     rn_text = open(os.path.join(FIX, "kegg_reactions.txt")).read()
     cpd_text = open(os.path.join(FIX, "kegg_compounds.txt")).read()
 
-    monkeypatch.setattr(pm, "download_kegg_org_reaction_links",
+    monkeypatch.setattr(pm, "download_kegg_org_ko_links",
                         lambda code, cache, refresh=False:
-                        os.path.join(FIX, "link_reaction_cre.txt"))
+                        os.path.join(FIX, "link_ko_cre.txt"))
+    monkeypatch.setattr(pm, "download_ko_reaction_links",
+                        lambda cache, refresh=False:
+                        os.path.join(FIX, "link_reaction_ko.txt"))
     monkeypatch.setattr(pm, "kegg_get_batched",
                         lambda prefix, ids, cache, refresh=False:
                         rn_text if prefix == "rn" else cpd_text)
     monkeypatch.setattr(pm, "download_kegg_org_pathways",
                         lambda code, cache, refresh=False:
-                        os.path.join(FIX, "cre_pathways.txt"))
+                        os.path.join(FIX, "cre_pathways.txt" if code
+                                     else "ref_pathways.txt"))
     monkeypatch.setattr(pm, "download_kegg_info",
                         lambda target, cache, refresh=False:
                         os.path.join(FIX, "info_cre.txt"))
@@ -145,3 +149,53 @@ def test_mass_spotcheck_passed(built_model):
     assert sc["n_checked"] >= 5
     assert sc["passed"] is True
     assert sc["max_abs_diff_mDa"] <= 1.0
+
+
+def test_manifest_records_ko_coverage(built_model):
+    # Organism reactions are resolved gene->KO->reaction; coverage is reported.
+    _, manifest = built_model
+    cov = manifest["build_details"]["ko_coverage"]
+    assert cov["n_genes"] == 6
+    assert cov["n_kos"] == 5                 # K00844 de-duplicated across 2 genes
+    assert cov["n_kos_with_reaction"] == 4   # K99999 maps to no reaction
+    assert cov["n_reactions_from_kos"] == 5  # R00299,R00771,R01786,R00200,R02110
+
+
+def test_kaas_source_builds_from_ko_file(tmp_path, monkeypatch):
+    """The KAAS path is the same KO-list pipeline, KOs read from a file and
+    pathways taken from the KEGG-wide reference maps (organism not in KEGG)."""
+    rn_text = open(os.path.join(FIX, "kegg_reactions.txt")).read()
+    cpd_text = open(os.path.join(FIX, "kegg_compounds.txt")).read()
+    monkeypatch.setattr(pm, "download_ko_reaction_links",
+                        lambda cache, refresh=False:
+                        os.path.join(FIX, "link_reaction_ko.txt"))
+    monkeypatch.setattr(pm, "kegg_get_batched",
+                        lambda prefix, ids, cache, refresh=False:
+                        rn_text if prefix == "rn" else cpd_text)
+    monkeypatch.setattr(pm, "download_kegg_org_pathways",
+                        lambda code, cache, refresh=False:
+                        os.path.join(FIX, "cre_pathways.txt" if code
+                                     else "ref_pathways.txt"))
+    monkeypatch.setattr(pm, "download_kegg_info",
+                        lambda target, cache, refresh=False:
+                        os.path.join(FIX, "info_cre.txt"))
+
+    model_path, manifest_path = pm.prepare_mummichog_model(
+        kegg_code=None, out_dir=str(tmp_path), cache_dir=str(tmp_path),
+        source="kaas", kaas_file=os.path.join(FIX, "kaas_query.ko.txt"),
+        model_organism="Coelastrella sp.", model_kegg_code="coel",
+        date="20260711")
+
+    assert os.path.basename(model_path) == "coel_kaas_20260711.json"
+    with open(model_path) as f:
+        model = json.load(f)
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+    # reference (map#####) pathways, since a non-model organism has none of its own
+    assert {p["id"] for p in model["list_of_pathways"]} == {"map00010"}
+    assert {r["id"] for r in model["list_of_reactions"]} == {"R00299", "R00771", "R00200"}
+    assert model["meta_data"]["source"] == "KEGG REST (KAAS KO list)"
+    cov = manifest["build_details"]["ko_coverage"]
+    assert cov["n_kos"] == 4                 # K99999 has no reaction
+    assert cov["n_kos_with_reaction"] == 3
+    assert cov["n_reactions_from_kos"] == 4  # R00299,R00771,R01786,R00200

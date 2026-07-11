@@ -13,8 +13,9 @@ from src.download_kegg import (  # noqa: E402
     iter_kegg_records,
     parse_compound_record,
     parse_kegg_release,
+    parse_ko_reaction_links,
+    parse_org_ko_links,
     parse_org_pathways,
-    parse_org_reaction_links,
     parse_reaction_record,
 )
 
@@ -61,12 +62,25 @@ def test_org_pathways_strip_org_suffix():
     assert "cre00020" in pw
 
 
-def test_org_reaction_links():
-    ids, gene2rxn = parse_org_reaction_links(
-        os.path.join(FIX, "link_reaction_cre.txt"))
-    assert "R00299" in ids
-    assert ids.count("R00299") == 1  # de-duplicated
-    assert "R00299" in gene2rxn["CHLRE_05g250000v5"]
+def test_org_ko_links():
+    kos, gene2ko = parse_org_ko_links(os.path.join(FIX, "link_ko_cre.txt"))
+    assert "K00844" in kos
+    assert kos.count("K00844") == 1  # de-duplicated across genes
+    assert gene2ko["CHLRE_01g000050v5"] == ["K00844"]
+
+
+def test_ko_to_reaction_step():
+    # Guards the KO->reaction resolution (organism genes are NOT linked directly
+    # to reactions; they route through KO).
+    ko2rxn = parse_ko_reaction_links(os.path.join(FIX, "link_reaction_ko.txt"))
+    assert ko2rxn["K00844"] == ["R00299"]
+    assert ko2rxn["K01810"] == ["R00771", "R01786"]
+    # intersect a KO set with the KEGG-wide map -> only in-set KOs contribute
+    org_kos = ["K00844", "K01810", "K00873", "K00688", "K99999"]
+    reactions = sorted({r for ko in org_kos for r in ko2rxn.get(ko, [])})
+    assert reactions == ["R00200", "R00299", "R00771", "R01786", "R02110"]
+    assert "R99999" not in reactions  # its KO (K00001) is not in the organism
+    assert ko2rxn.get("K99999") is None  # coverage gap
 
 
 def test_kegg_release_parsed():

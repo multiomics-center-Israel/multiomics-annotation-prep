@@ -38,14 +38,16 @@ from datetime import datetime
 from .download_kegg import (
     _dedup,
     download_kegg_info,
+    download_kegg_org_ko_links,
     download_kegg_org_pathways,
-    download_kegg_org_reaction_links,
+    download_ko_reaction_links,
     iter_kegg_records,
     kegg_get_batched,
     parse_compound_record,
     parse_kegg_release,
+    parse_ko_reaction_links,
+    parse_org_ko_links,
     parse_org_pathways,
-    parse_org_reaction_links,
     parse_reaction_record,
 )
 from .masses import neutral_mono_mass
@@ -57,24 +59,72 @@ SOURCE_TOKENS = {"kegg_org": "kegg", "kaas": "kaas"}
 
 
 # ---------------------------------------------------------------------------
-# Source loaders -- each returns the same triple of entities so they can feed
-# the single, source-agnostic assemble_model(). This is the KAAS seam.
+# Source loading. Both the organism-code path and the KAAS path reduce to the
+# SAME shape: a KO list -> reactions -> compounds -> pathways. The only thing
+# that differs is where the KO list comes from.
+#
+# KEGG does not link organism genes directly to reactions
+# (link/reaction/<org> is invalid). The organism's reactions are resolved
+# through KO: link/ko/<org> (gene->KO) intersected with link/reaction/ko
+# (KO->reaction, KEGG-wide).
 # ---------------------------------------------------------------------------
 
-def load_kegg_org_source(kegg_code, cache_dir, refresh=False):
-    """Pull all reactions/compounds/pathways for a KEGG organism code.
+def parse_kaas_ko_list(kaas_file):
+    """Parse a KAAS query.ko.txt (gene<TAB>KO) -> (ordered KO ids, gene->KOs)."""
+    ko_ids, gene2ko = [], defaultdict(list)
+    with open(kaas_file) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            parts = line.split("\t", 1)
+            gene = parts[0].strip()
+            ko = parts[1].strip().replace("ko:", "") if len(parts) > 1 else ""
+            if not ko:
+                continue
+            gene2ko[gene].append(ko)
+            ko_ids.append(ko)
+    return _dedup(ko_ids), dict(gene2ko)
 
-    Returns ``{reactions, compounds, pathway_names, source, source_version}``:
 
-    * ``reactions``      -- list of dicts {id, reactants, products, enzymes,
-      ref_pathways} built from reaction EQUATIONs (real substrate/product links)
-    * ``compounds``      -- dict cid -> {id, name, formula, exact_mass}
-    * ``pathway_names``  -- dict organism-pathway-id -> name
+def resolve_ko_list(source, kegg_code, cache_dir, refresh, kaas_file):
+    """The unifying step: get the organism's KO list from either source.
+
+    Returns ``(ko_list, {"n_genes": ...})``.
     """
-    log_msg("KEGG org source: code=", kegg_code)
-    rlink = download_kegg_org_reaction_links(kegg_code, cache_dir, refresh)
-    reaction_ids, _gene2rxn = parse_org_reaction_links(rlink)
-    log_msg("  reactions linked to organism genes: ", len(reaction_ids))
+    if source == "kegg_org":
+        if not kegg_code:
+            raise ValueError("kegg_code is required for source='kegg_org'")
+        log_msg("KO list from KEGG organism code: ", kegg_code)
+        ko_list, gene2ko = parse_org_ko_links(
+            download_kegg_org_ko_links(kegg_code, cache_dir, refresh))
+    elif source == "kaas":
+        if not kaas_file:
+            raise ValueError("kaas_file is required for source='kaas'")
+        log_msg("KO list from KAAS file: ", kaas_file)
+        ko_list, gene2ko = parse_kaas_ko_list(kaas_file)
+    else:
+        raise ValueError(
+            f"Unknown source {source!r} (expected 'kegg_org' or 'kaas')")
+    log_msg("  genes: ", len(gene2ko), "; distinct KOs: ", len(ko_list))
+    return ko_list, {"n_genes": len(gene2ko)}
+
+
+def load_source(source, kegg_code, cache_dir, refresh=False, kaas_file=None):
+    """KO list -> reactions -> compounds -> pathways (source-agnostic core).
+
+    Returns ``{reactions, compounds, pathway_names, pathway_prefix, source,
+    source_version, ko_coverage}``.
+    """
+    ko_list, ko_meta = resolve_ko_list(source, kegg_code, cache_dir, refresh,
+                                       kaas_file)
+
+    # KO -> reaction (KEGG-wide), intersected with the organism's KOs.
+    ko2rxn = parse_ko_reaction_links(download_ko_reaction_links(cache_dir, refresh))
+    kos_with_rxn = [ko for ko in ko_list if ko2rxn.get(ko)]
+    reaction_ids = _dedup([r for ko in ko_list for r in ko2rxn.get(ko, [])])
+    log_msg("  KOs mapping to >=1 reaction: ", len(kos_with_rxn), "/",
+            len(ko_list), "; reactions: ", len(reaction_ids))
 
     rn_text = kegg_get_batched("rn", reaction_ids, cache_dir, refresh)
     reactions = [r for r in (parse_reaction_record(rec)
@@ -90,43 +140,47 @@ def load_kegg_org_source(kegg_code, cache_dir, refresh=False):
         if c["id"]:
             compounds[c["id"]] = c
 
-    pw_path = download_kegg_org_pathways(kegg_code, cache_dir, refresh)
-    pathway_names = parse_org_pathways(pw_path)
-    log_msg("  organism pathways: ", len(pathway_names))
+    # Pathways: organism pathways for a KEGG code (cre#####); reference maps
+    # (map#####) for KAAS, since a non-model organism has none of its own.
+    if source == "kegg_org":
+        pathway_names = parse_org_pathways(
+            download_kegg_org_pathways(kegg_code, cache_dir, refresh))
+        pathway_prefix, source_str = kegg_code, "KEGG REST"
+    else:
+        pathway_names = parse_org_pathways(
+            download_kegg_org_pathways(None, cache_dir, refresh))
+        pathway_prefix, source_str = "map", "KEGG REST (KAAS KO list)"
+    log_msg("  candidate pathways: ", len(pathway_names))
 
     source_version = None
     try:
         source_version = parse_kegg_release(
-            download_kegg_info(kegg_code, cache_dir, refresh))
+            download_kegg_info(kegg_code or "kegg", cache_dir, refresh))
     except Exception as exc:  # noqa: BLE001 - version is best-effort, not fatal
         log_msg("  (KEGG release version unavailable: ", exc, ")")
 
-    return {"reactions": reactions, "compounds": compounds,
-            "pathway_names": pathway_names, "source": "KEGG REST",
-            "source_version": source_version}
-
-
-def load_kaas_source(kaas_file, cache_dir, refresh=False):
-    """PLANNED seam for non-model organisms built from a KAAS KO list.
-
-    The intended flow is KO/EC -> reactions -> compounds -> pathways, feeding the
-    same :func:`assemble_model`, with KO->reaction coverage recorded in the
-    manifest. Not implemented yet -- structured here so adding it changes only
-    this function, not the assembler or the output contract.
-    """
-    raise NotImplementedError(
-        "The KAAS source is a planned seam and is not implemented yet. Use "
-        "source='kegg_org'. When built it will map KO/EC -> reactions -> "
-        "compounds -> pathways into assemble_model() and report coverage in the "
-        "manifest.")
+    return {
+        "reactions": reactions,
+        "compounds": compounds,
+        "pathway_names": pathway_names,
+        "pathway_prefix": pathway_prefix,
+        "source": source_str,
+        "source_version": source_version,
+        "ko_coverage": {
+            "n_genes": ko_meta.get("n_genes"),
+            "n_kos": len(ko_list),
+            "n_kos_with_reaction": len(kos_with_rxn),
+            "n_reactions_from_kos": len(reaction_ids),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
 # Assembly -- pure (no I/O). Uses metDataModel core_simple for the structure.
 # ---------------------------------------------------------------------------
 
-def assemble_model(kegg_code, reactions, compounds, pathway_names, *,
-                   model_id, meta_data):
+def assemble_model(reactions, compounds, pathway_names, *,
+                   pathway_prefix, model_id, meta_data):
     """Assemble entities into a mummichog-ready model dict.
 
     Enforces the contract's hard requirements: every emitted compound has a
@@ -191,7 +245,7 @@ def assemble_model(kegg_code, reactions, compounds, pathway_names, *,
     pw_rxns = defaultdict(set)
     for rid, nums in rxn_refpaths.items():
         for num in nums:
-            pid = f"{kegg_code}{num}"
+            pid = f"{pathway_prefix}{num}"
             if pid in pathway_names:
                 pw_rxns[pid].add(rid)
     emit_pws = []
@@ -381,19 +435,16 @@ def prepare_mummichog_model(kegg_code, out_dir, cache_dir, *,
     """
     date = date or datetime.utcnow().strftime("%Y%m%d")
     model_kegg_code = model_kegg_code or kegg_code
+    if not model_kegg_code:
+        raise ValueError(
+            "model_kegg_code is required (a short label for the model file "
+            "stem, e.g. 'cre'); for source='kaas' pass it explicitly")
     if model_is_surrogate is None:
         model_is_surrogate = bool(target_organism
                                   and target_organism != model_organism)
     stem = f"{model_kegg_code}_{SOURCE_TOKENS.get(source, source)}_{date}"
 
-    if source == "kegg_org":
-        src = load_kegg_org_source(kegg_code, cache_dir, refresh)
-    elif source == "kaas":
-        src = load_kaas_source(kaas_file, cache_dir, refresh)
-    else:
-        raise ValueError(
-            f"Unknown source {source!r} (expected 'kegg_org' or 'kaas')")
-
+    src = load_source(source, kegg_code, cache_dir, refresh, kaas_file)
     resolved_version = source_version or src.get("source_version") or "unknown"
 
     # meta_data.version is REQUIRED by the mummichog loader (reads
@@ -412,8 +463,8 @@ def prepare_mummichog_model(kegg_code, out_dir, cache_dir, *,
     }
 
     model, counts, spot = assemble_model(
-        kegg_code, src["reactions"], src["compounds"], src["pathway_names"],
-        model_id=stem, meta_data=meta_data)
+        src["reactions"], src["compounds"], src["pathway_names"],
+        pathway_prefix=src["pathway_prefix"], model_id=stem, meta_data=meta_data)
     log_msg("model assembled: ", counts["compounds"], " compounds, ",
             counts["reactions"], " reactions, ", counts["pathways"], " pathways ",
             "(dropped ", counts["compounds_dropped_no_mass"], " compounds w/o mass, ",
@@ -465,6 +516,7 @@ def prepare_mummichog_model(kegg_code, out_dir, cache_dir, *,
         "build_details": {
             "compounds_dropped_no_mass": counts["compounds_dropped_no_mass"],
             "reactions_dropped_unmapped": counts["reactions_dropped_unmapped"],
+            "ko_coverage": src.get("ko_coverage", {}),
         },
         "mass_spotcheck": spotcheck,
         "validation": validation,

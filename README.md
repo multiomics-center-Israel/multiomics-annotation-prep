@@ -105,25 +105,39 @@ directly from KEGG compound/reaction/pathway entities and serialized to the
 [metDataModel](https://github.com/shuzhao-li/metDataModel) shape that
 `mummichog -n <model>.json` consumes (verified against mummichog 2.7.0).
 
+Both supported inputs reduce to the **same pipeline** —
+`KO list -> reactions -> compounds -> pathways` — differing only in where the KO
+list comes from. (KEGG does not link organism genes directly to reactions, so
+the organism's reactions are resolved via KO: `link/ko/<code>` intersected with
+`link/reaction/ko`.)
+
 ```bash
 # scoped optional deps (do NOT affect the gene-set modules)
 pip install -r requirements-mummichog.txt
 
-# build a model from a KEGG organism code (e.g. cre = Chlamydomonas reinhardtii,
-# used here as a surrogate for Coelastrella, which is not in KEGG)
+# (A) from a KEGG organism code (e.g. cre = Chlamydomonas reinhardtii,
+#     used here as a surrogate for Coelastrella, which is not in KEGG)
 python scripts/run_mummichog_model.py \
     --kegg-code       cre \
     --model-organism  "Chlamydomonas reinhardtii" \
     --target-organism "Coelastrella sp." \
     --out results --cache data --validate
+
+# (B) from a KAAS KO list, for a non-model organism not in KEGG
+python scripts/run_mummichog_model.py \
+    --source kaas --kaas examples/query.ko.txt \
+    --model-organism "Coelastrella sp." --model-kegg-code coel \
+    --out results --cache data --validate
 ```
 
-This writes `cre_kegg_<date>.json` + `cre_kegg_<date>.manifest.json`. The
+Path (A) writes `cre_kegg_<date>.json` + `cre_kegg_<date>.manifest.json`. The
 manifest records that the model organism is **cre (a relative)**, not
-Coelastrella, so the surrogate is transparent in results/publication. `--validate`
-additionally runs `mummichog -n` on a synthetic feature table and records the
-outcome. The input source (`kegg_org` vs a future `kaas` path for non-model
-organisms) is a config choice under `mummichog_model:` in `config/config.yml`.
+Coelastrella, so the surrogate is transparent in results/publication, along with
+KO->reaction coverage. `--validate` additionally runs `mummichog -n` on a
+synthetic feature table and records the outcome. The input source (`kegg_org` vs
+`kaas`) is also a config choice under `mummichog_model:` in `config/config.yml`.
+Path (B) uses KEGG reference pathways (`map#####`), since a non-model organism
+has none of its own.
 
 ---
 

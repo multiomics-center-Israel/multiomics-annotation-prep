@@ -25,15 +25,19 @@ FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 def _build(tmp_path, monkeypatch):
     rn_text = open(os.path.join(FIX, "kegg_reactions.txt")).read()
     cpd_text = open(os.path.join(FIX, "kegg_compounds.txt")).read()
-    monkeypatch.setattr(pm, "download_kegg_org_reaction_links",
+    monkeypatch.setattr(pm, "download_kegg_org_ko_links",
                         lambda code, cache, refresh=False:
-                        os.path.join(FIX, "link_reaction_cre.txt"))
+                        os.path.join(FIX, "link_ko_cre.txt"))
+    monkeypatch.setattr(pm, "download_ko_reaction_links",
+                        lambda cache, refresh=False:
+                        os.path.join(FIX, "link_reaction_ko.txt"))
     monkeypatch.setattr(pm, "kegg_get_batched",
                         lambda prefix, ids, cache, refresh=False:
                         rn_text if prefix == "rn" else cpd_text)
     monkeypatch.setattr(pm, "download_kegg_org_pathways",
                         lambda code, cache, refresh=False:
-                        os.path.join(FIX, "cre_pathways.txt"))
+                        os.path.join(FIX, "cre_pathways.txt" if code
+                                     else "ref_pathways.txt"))
     monkeypatch.setattr(pm, "download_kegg_info",
                         lambda target, cache, refresh=False:
                         os.path.join(FIX, "info_cre.txt"))

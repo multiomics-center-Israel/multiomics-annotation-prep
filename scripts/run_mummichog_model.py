@@ -26,8 +26,8 @@ def main():
         description="Build an organism metabolic model for mummichog (-n)")
     parser.add_argument("--source", choices=["kegg_org", "kaas"],
                         default="kegg_org",
-                        help="Input source (default: kegg_org). "
-                             "kaas is a planned seam, not yet implemented.")
+                        help="Where the KO list comes from (default: kegg_org). "
+                             "kegg_org: link/ko/<code>; kaas: a KAAS KO file.")
     parser.add_argument("--kegg-code",
                         help="KEGG organism code to build from (e.g. cre). "
                              "Required for --source kegg_org.")
@@ -35,8 +35,9 @@ def main():
                         help='Species the model IS (e.g. "Chlamydomonas '
                              'reinhardtii")')
     parser.add_argument("--model-kegg-code", default=None,
-                        help="KEGG code recorded for the model "
-                             "(defaults to --kegg-code)")
+                        help="Short label used in the output filename stem and "
+                             "recorded for the model (defaults to --kegg-code; "
+                             "required for --source kaas, e.g. 'coel')")
     parser.add_argument("--target-organism", default=None,
                         help='Biology the model stands in for (e.g. '
                              '"Coelastrella sp."); leave unset if same as model')
@@ -55,11 +56,17 @@ def main():
                         help="Run `mummichog -n` on a synthetic feature table "
                              "and record the result (needs mummichog installed)")
     parser.add_argument("--kaas", default=None,
-                        help="(future) KAAS KO list for --source kaas")
+                        help="KAAS KO list (gene<TAB>KO) for --source kaas")
     args = parser.parse_args()
 
     if args.source == "kegg_org" and not args.kegg_code:
         parser.error("--kegg-code is required for --source kegg_org")
+    if args.source == "kaas":
+        if not args.kaas:
+            parser.error("--kaas <query.ko.txt> is required for --source kaas")
+        if not (args.model_kegg_code or args.kegg_code):
+            parser.error("--model-kegg-code (filename label, e.g. 'coel') is "
+                         "required for --source kaas")
 
     log_msg("=== mummichog metabolic model (source=", args.source, ") ===")
     model_path, manifest_path = prepare_mummichog_model(

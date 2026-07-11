@@ -131,20 +131,21 @@ def kegg_get_batched(prefix, ids, cache_dir, refresh=False):
     return "".join(parts)
 
 
-def download_kegg_org_reaction_links(kegg_code, cache_dir, refresh=False):
-    """link/reaction/<org>: organism gene -> reaction pairs."""
-    url = f"https://rest.kegg.jp/link/reaction/{kegg_code}"
-    return cached_download(url, f"kegg_{kegg_code}_gene2reaction.txt",
-                           cache_dir, refresh)
+def download_kegg_org_ko_links(kegg_code, cache_dir, refresh=False):
+    """link/ko/<org>: organism gene -> KO pairs.
 
-
-def parse_org_reaction_links(path):
-    """Parse link/reaction/<org> -> (ordered reaction ids, gene->reactions dict).
-
-    The reaction set defines which reactions are present in the organism, keyed
-    on the organism's own genes (real enzyme presence).
+    KEGG does NOT link organism genes directly to reactions
+    (``link/reaction/<org>`` is an invalid query, HTTP 400). Genes map to KOs,
+    and KOs map to reactions KEGG-wide -- so the organism's reaction set is
+    resolved through KO (see :func:`download_ko_reaction_links`).
     """
-    reaction_ids, gene2rxn = [], defaultdict(list)
+    url = f"https://rest.kegg.jp/link/ko/{kegg_code}"
+    return cached_download(url, f"kegg_{kegg_code}_gene2ko.txt", cache_dir, refresh)
+
+
+def parse_org_ko_links(path):
+    """Parse link/ko/<org> -> (ordered KO ids, gene->KOs dict)."""
+    ko_ids, gene2ko = [], defaultdict(list)
     with open(path) as f:
         for line in f:
             line = line.rstrip("\n")
@@ -154,20 +155,49 @@ def parse_org_reaction_links(path):
             if len(parts) < 2:
                 continue
             gene = re.sub(r"^[^:]+:", "", parts[0])
+            ko = parts[1].replace("ko:", "")
+            gene2ko[gene].append(ko)
+            ko_ids.append(ko)
+    return _dedup(ko_ids), dict(gene2ko)
+
+
+def download_ko_reaction_links(cache_dir, refresh=False):
+    """link/reaction/ko: KO -> reaction pairs, KEGG-wide (one cached file)."""
+    url = "https://rest.kegg.jp/link/reaction/ko"
+    return cached_download(url, "kegg_ko2reaction.txt", cache_dir, refresh)
+
+
+def parse_ko_reaction_links(path):
+    """Parse link/reaction/ko -> {KO: [reaction ids]} (KEGG-wide)."""
+    ko2rxn = defaultdict(list)
+    with open(path) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+            ko = parts[0].replace("ko:", "")
             rxn = parts[1].replace("rn:", "")
-            gene2rxn[gene].append(rxn)
-            reaction_ids.append(rxn)
-    return _dedup(reaction_ids), dict(gene2rxn)
+            ko2rxn[ko].append(rxn)
+    return {ko: _dedup(rxns) for ko, rxns in ko2rxn.items()}
 
 
 def download_kegg_org_pathways(kegg_code, cache_dir, refresh=False):
-    """list/pathway/<org>: organism pathway ids + names."""
-    url = f"https://rest.kegg.jp/list/pathway/{kegg_code}"
-    return cached_download(url, f"kegg_{kegg_code}_pathways.txt", cache_dir, refresh)
+    """list/pathway/<org>: organism pathway ids + names.
+
+    Pass ``kegg_code=None`` for the KEGG-wide reference pathway list
+    (``list/pathway`` -> ``map#####``), used by the KAAS (non-model) path.
+    """
+    suffix = f"/{kegg_code}" if kegg_code else ""
+    dest = f"kegg_{kegg_code}_pathways.txt" if kegg_code else "kegg_ref_pathways.txt"
+    return cached_download(f"https://rest.kegg.jp/list/pathway{suffix}", dest,
+                           cache_dir, refresh)
 
 
 def parse_org_pathways(path):
-    """Parse list/pathway/<org> -> {pathway_id: name}, dropping the org suffix."""
+    """Parse list/pathway[/<org>] -> {pathway_id: name}, dropping any org suffix."""
     result = {}
     with open(path) as f:
         for line in f:

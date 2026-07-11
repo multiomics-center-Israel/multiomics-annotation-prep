@@ -81,9 +81,11 @@ The **mummichog metabolic model** is a separate, COMPOUND-centric output type
 (compounds w/ neutral formula+mass, real substrate/product reactions,
 pathways-of-reactions) consumed by `mummichog -n <model>.json`. It is NOT derived
 from the gene sets; it is pulled from KEGG cpd/rn/pathway entities and serialized
-to the metDataModel shape. Contract: `MODEL_CONTRACT.md`. Its deps
-(`metDataModel`, `mass2chem`, `mummichog`) are optional imports scoped to this
-module (`requirements-mummichog.txt`) so the gene-set modules stay `requests`+
+to the metDataModel shape. Both inputs (a KEGG organism code, or a KAAS KO list)
+reduce to the same pipeline: `KO list -> reactions -> compounds -> pathways`.
+Contract: `MODEL_CONTRACT.md`. Its deps (`metDataModel`, `mass2chem`,
+`mummichog`) are optional imports scoped to this module
+(`requirements-mummichog.txt`) so the gene-set modules stay `requests`+
 `pyyaml`-only.
 
 ## How to run
@@ -117,6 +119,11 @@ ensembl.org, rest.uniprot.org). Downloads are cached under `data/`; pass
   `--no-strip-isoform` if IDs are already gene-level.
 - KEGG `ko->path` keeps only reference pathways (`^map`). Organism-code pathways
   (`mmu00010` etc.) come from `download_kegg_org.py` instead.
+- KEGG has **no gene->reaction link** for an organism (`link/reaction/<org>` is an
+  invalid query → HTTP 400). The mummichog model resolves reactions via KO:
+  `link/ko/<org>` (gene→KO) intersected with `link/reaction/ko` (KO→reaction,
+  KEGG-wide). The KAAS path supplies the same KO list from a file. Do not
+  "restore" a direct gene→reaction lookup.
 - GO hierarchy expansion uses the `is_a` relationships from `go-basic.obo` to build
   a transitive ancestor closure — every direct annotation propagates to all parent
   terms.

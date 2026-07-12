@@ -64,14 +64,17 @@ src/
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
   masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
   prepare_mummichog_model.py # KEGG org code -> mummichog metabolic model JSON + manifest  [NEW output type]
+  model_registry.py        # MODELS.md registry helpers (append_model_row, idempotent on tag)
 scripts/
   run_kegg_nonmodel.py     # CLI wrapper (argparse)
   run_go.py                # CLI wrapper
   run_mummichog_model.py   # CLI wrapper for the mummichog model
+  publish_model.py         # release a model + auto-append a row to MODELS.md, then commit it
   run_all.py               # config-driven driver (reads config/config.yml)
 config/config.yml          # which modules run + their inputs
 requirements-mummichog.txt # scoped, pinned optional deps for the mummichog model only
-tests/                     # pytest: masses, KEGG parsers, model assembly, mummichog smoke
+MODELS.md                  # registry/index of published models (tracked source, not an artifact)
+tests/                     # pytest: masses, KEGG parsers, model assembly, mummichog smoke, registry
 examples/                  # tiny inputs so the tool runs end-to-end
 data/                      # download cache (git-ignored)
 results/                   # output files (git-ignored)

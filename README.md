@@ -96,6 +96,11 @@ periodically, since KEGG/GO are updated frequently.
 
 ## Metabolic model for mummichog (compound-centric)
 
+> **Before building, check [`MODELS.md`](MODELS.md).** It's the registry of
+> already-published models. If your organism (or a suitable surrogate) is already
+> listed, reuse its **Model URL** + **sha256** in your pipeline config instead of
+> rebuilding.
+
 A separate, self-contained module builds an organism-specific **metabolic model**
 for the [mummichog](http://mummichog.org) metabolomics pathway tool. Unlike the
 gene-set files above, this model is **compound-centric**: compounds carry a
@@ -175,15 +180,18 @@ multiomic-annotation-prep/
 │   ├── prepare_ensembl.py       # Ensembl/BioMart path (model organisms)
 │   ├── prepare_uniprot.py       # UniProt path (proteomics)
 │   ├── masses.py                # neutral monoisotopic mass (via mass2chem)
-│   └── prepare_mummichog_model.py  # KEGG -> mummichog metabolic model (JSON)
+│   ├── prepare_mummichog_model.py  # KEGG -> mummichog metabolic model (JSON)
+│   └── model_registry.py        # MODELS.md registry append logic
 ├── scripts/
 │   ├── run_kegg_nonmodel.py
 │   ├── run_go.py
 │   ├── run_mummichog_model.py
+│   ├── publish_model.py         # release a model + record it in MODELS.md
 │   └── run_all.py               # config-driven, runs selected modules
 ├── config/config.yml
+├── MODELS.md                    # registry of published models (check before building)
 ├── examples/                    # tiny inputs so it runs out of the box
-├── tests/                       # pytest (parsers, masses, model, mummichog smoke)
+├── tests/                       # pytest (parsers, masses, model, mummichog smoke, registry)
 ├── data/                        # download cache (git-ignored)
 └── results/                     # output files (git-ignored)
 ```

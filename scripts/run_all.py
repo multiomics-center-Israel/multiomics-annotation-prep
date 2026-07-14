@@ -111,6 +111,22 @@ def main():
             kaas_file=mcg.get("kaas"),
         )
 
+    # KEGG reaction-pair reference (metabolite network; cross-side pairs)
+    rxn = modules.get("kegg_reaction_pairs", {})
+    if rxn.get("enabled", False):
+        from src.prepare_kegg_reaction_pairs import prepare_kegg_reaction_pairs
+        log_msg("=== Module: kegg_reaction_pairs ===")
+        prepare_kegg_reaction_pairs(
+            out_dir=out_dir,
+            cache_dir=cache_dir,
+            date=rxn.get("date"),
+            refresh=refresh,
+            method=rxn.get("method", "equation_side_cartesian_product"),
+            retries=rxn.get("retries", 3),
+            rate_limit_s=rxn.get("rate_limit_s", 0.34),
+            allow_incomplete=rxn.get("allow_incomplete", False),
+        )
+
     log_msg("=== All modules done ===")
 
 

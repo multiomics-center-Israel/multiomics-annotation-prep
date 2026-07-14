@@ -4,7 +4,7 @@ import hashlib
 import re
 from collections import defaultdict
 
-from .utils import cached_download
+from .utils import cached_download, log_msg
 
 
 KEGG_KO_LIST_URL = "https://rest.kegg.jp/list/ko"
@@ -109,13 +109,15 @@ def _dedup(seq):
     return out
 
 
-def kegg_get_batched(prefix, ids, cache_dir, refresh=False):
+def kegg_get_batched(prefix, ids, cache_dir, refresh=False, *, retries=0,
+                     rate_limit_s=0.0):
     """Fetch KEGG flat records for *ids* via batched ``get`` (<=10 per request).
 
     *prefix* is ``"cpd"`` or ``"rn"``. ids are sorted+de-duplicated so batching
     is deterministic, and each batch is cached under a filename bound to that
     batch's contents (a short hash) -- so an identical id set is a cache hit,
     while a changed set re-fetches instead of silently reusing a stale batch.
+    ``retries``/``rate_limit_s`` are passed through to :func:`cached_download`.
     Returns the concatenated raw text of all records (KEGG separates records
     with ``///`` lines, which are preserved).
     """
@@ -125,10 +127,94 @@ def kegg_get_batched(prefix, ids, cache_dir, refresh=False):
         chunk = ids[i:i + KEGG_GET_MAX]
         url = "https://rest.kegg.jp/get/" + "+".join(f"{prefix}:{x}" for x in chunk)
         key = hashlib.sha1("|".join(chunk).encode()).hexdigest()[:12]
-        path = cached_download(url, f"kegg_get_{prefix}_{key}.txt", cache_dir, refresh)
+        path = cached_download(url, f"kegg_get_{prefix}_{key}.txt", cache_dir,
+                               refresh, retries=retries, rate_limit_s=rate_limit_s)
         with open(path) as f:
             parts.append(f.read())
     return "".join(parts)
+
+
+KEGG_REACTION_LIST_URL = "https://rest.kegg.jp/list/reaction"
+_RXN_ID = re.compile(r"^R\d{5}$")
+
+
+def download_reaction_list(cache_dir, refresh=False):
+    """list/reaction: every KEGG reaction id (+ name), one cached file."""
+    return cached_download(KEGG_REACTION_LIST_URL, "kegg_reaction_list.txt",
+                           cache_dir, refresh)
+
+
+def parse_reaction_list(path):
+    """Parse list/reaction -> sorted unique reaction ids (``R#####``)."""
+    ids = set()
+    with open(path) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            rid = line.split("\t", 1)[0].replace("rn:", "").strip()
+            if _RXN_ID.match(rid):
+                ids.add(rid)
+    return sorted(ids)
+
+
+def fetch_and_reconcile_reactions(reaction_ids, cache_dir, *, refresh=False,
+                                  retries=3, rate_limit_s=0.34):
+    """Fetch + parse KEGG reaction records, reconciling requested vs parsed ids.
+
+    Success is defined ONLY by reconciliation: a reaction id counts as retrieved
+    when a record for it was actually parsed, never merely because a batch cache
+    file exists. Unresolved ids are retried with the cache bypassed
+    (``refresh=True``) -- the final pass fetches each missing id on its own, so a
+    single bad/obsolete id in a batch cannot mask the rest. Returns
+    ``(parsed, missing)``: *parsed* maps reaction id -> record, *missing* is the
+    sorted list still unretrieved after all retries.
+    """
+    requested = sorted({r for r in reaction_ids if r})
+    parsed = {}
+
+    def absorb(text):
+        for rec in iter_kegg_records(text):
+            r = parse_reaction_record(rec)
+            if r["id"] and r["id"] not in parsed:
+                parsed[r["id"]] = r
+
+    def missing_now():
+        return [r for r in requested if r not in parsed]
+
+    # Pass 0: normal batched fetch (cache allowed). Guarded so one bad id in a
+    # chunk cannot abort the whole run -- the retry passes isolate it.
+    if requested:
+        try:
+            absorb(kegg_get_batched("rn", requested, cache_dir, refresh=refresh,
+                                    retries=1, rate_limit_s=rate_limit_s))
+        except Exception as exc:  # noqa: BLE001 - reconciled via retries below
+            log_msg("  initial reaction batch error (", exc,
+                    "); reconciling via retries")
+
+    missing = missing_now()
+    for attempt in range(1, retries + 1):
+        if not missing:
+            break
+        # Final pass isolates each id (smallest possible batch) with the cache
+        # bypassed, so an incomplete/empty earlier response is never reused.
+        per_id = attempt == retries
+        if per_id:
+            for rid in missing:
+                try:
+                    absorb(kegg_get_batched("rn", [rid], cache_dir, refresh=True,
+                                            retries=1, rate_limit_s=rate_limit_s))
+                except Exception:  # noqa: BLE001 - stays in `missing` -> fetch_failed
+                    pass
+        else:
+            try:
+                absorb(kegg_get_batched("rn", missing, cache_dir, refresh=True,
+                                        retries=1, rate_limit_s=rate_limit_s))
+            except Exception:  # noqa: BLE001 - isolated on the per-id pass
+                pass
+        missing = missing_now()
+
+    return parsed, missing
 
 
 def download_kegg_org_ko_links(kegg_code, cache_dir, refresh=False):
@@ -306,12 +392,21 @@ def parse_reaction_record(rec):
     if rec.get("NAME"):
         name = rec["NAME"][0].strip().rstrip(";").strip()
     equation = " ".join(rec.get("EQUATION", []))
+    # The only reaction arrow KEGG uses in EQUATION is "<=>". Record the literal
+    # token so a consumer never has to re-guess it, and leave it None when the
+    # equation is absent or uses an unrecognized arrow (both are reported, not
+    # silently dropped, downstream).
+    arrow = "<=>" if "<=>" in equation else None
     reactants, products = [], []
-    if "<=>" in equation:
-        left, right = equation.split("<=>", 1)
+    if arrow:
+        left, right = equation.split(arrow, 1)
         reactants = _dedup(_CPD_ID.findall(left))
         products = _dedup(_CPD_ID.findall(right))
     enzymes = _dedup(_EC.findall(" ".join(rec.get("ENZYME", []))))
     ref_pathways = _dedup(_REF_PATH.findall(" ".join(rec.get("PATHWAY", []))))
     return {"id": rid, "name": name, "reactants": reactants, "products": products,
-            "enzymes": enzymes, "ref_pathways": ref_pathways}
+            "enzymes": enzymes, "ref_pathways": ref_pathways,
+            # equation is the NORMALIZED full EQUATION field (KEGG wraps long
+            # equations across lines; iter_kegg_records rejoins them with spaces)
+            # -- not byte-verbatim source text.
+            "equation": equation, "equation_arrow": arrow}

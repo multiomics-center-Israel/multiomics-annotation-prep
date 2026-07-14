@@ -52,3 +52,16 @@ modules:
     # source: kaas
     # kaas: examples/query.ko.txt     # KAAS output (gene<TAB>KO)
     # model_kegg_code: coel           # required label for the output filename
+
+  # --- KEGG reaction-pair reference (metabolite network; cross-side pairs) --
+  # NEW output type, organism-independent: every KEGG reaction -> substrate x
+  # product compound pairs (equation_side_cartesian_product), written as a
+  # dated, checksummed .tsv.gz consumed by multiomic-core's metabolite-network
+  # stage. Independent of the gene-set / mummichog-model modules above.
+  kegg_reaction_pairs:
+    enabled: false
+    date: null                        # YYYYMMDD; else today (UTC)
+    method: equation_side_cartesian_product
+    retries: 3                        # retry rounds for unresolved reaction ids
+    rate_limit_s: 0.34                # polite delay after each KEGG download
+    allow_incomplete: false           # DEV ONLY; never produces a publishable asset

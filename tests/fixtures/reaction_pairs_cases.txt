@@ -1,0 +1,23 @@
+ENTRY       R99001                      Reaction
+NAME        self pair only;
+EQUATION    C00001 <=> C00001
+///
+ENTRY       R99002                      Reaction
+NAME        no equation field;
+///
+ENTRY       R99003                      Reaction
+NAME        non-C compound on the left;
+EQUATION    G00001 <=> C00002
+///
+ENTRY       R99004                      Reaction
+NAME        unsupported single arrow;
+EQUATION    C00001 => C00002
+///
+ENTRY       R99005                      Reaction
+NAME        pair A duplicate;
+EQUATION    C10001 <=> C10002
+///
+ENTRY       R99006                      Reaction
+NAME        pair A duplicate (second reaction);
+EQUATION    C10001 <=> C10002
+///

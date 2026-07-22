@@ -44,6 +44,14 @@ metabolic model, distinct from the gene-set files above):
 | `<org>_<source>_<date>.json` | metabolic model (compounds + reactions + pathways) for `mummichog -n` |
 | `<org>_<source>_<date>.manifest.json` | provenance, counts, sha256, validation |
 
+For **multiomic-core** metabolomics **ID-based** enrichment (ORA / GSEA / QEA over
+compound IDs, distinct from mummichog's m/z-based analysis):
+
+| File | Content |
+|------|---------|
+| `<org>_<source>_<date>.compound_pathway.gmt` | KEGG pathway **compound** sets (GMT) |
+| `<org>_<source>_<date>.pathway2compound.tab` | readable table: pathway id/name, compound id/name |
+
 ---
 
 ## Primary use case: non-model organism (transcriptome / KAAS)
@@ -146,6 +154,41 @@ has none of its own.
 
 ---
 
+## Compound sets for ID-based metabolomics enrichment (GMT)
+
+The mummichog model (above) drives **m/z-based** enrichment. For **ID-based**
+enrichment (ORA / GSEA / QEA over compound IDs) `multiomic-core` reads a **GMT of
+pathway compound sets**. This is built from the **same organism source** as the
+model (`KO list -> reactions -> compounds -> pathways`), so both enrichment paths
+describe the same pathways and the same biology. Because ID-based enrichment
+needs no mass, the compound set is a **superset** of the model's compounds: no
+mass filter is applied, so compounds the model drops (no computable neutral mass)
+are still included. Light deps only — `requests` + `pyyaml`, no `metDataModel` /
+`mass2chem`.
+
+```bash
+# same organism source as the model, same file stem
+python scripts/run_kegg_compound_sets.py \
+    --kegg-code       cre \
+    --model-organism  "Chlamydomonas reinhardtii" \
+    --target-organism "Coelastrella sp." \
+    --out results --cache data
+```
+
+This writes `cre_kegg_<date>.compound_pathway.gmt` (consumed by multiomic-core's
+`read_gmt` / `load_gene_sets`), `cre_kegg_<date>.pathway2compound.tab` (a readable
+table), and a small `cre_kegg_<date>.compound_sets.manifest.json` sidecar
+(files + sha256 + counts + provenance).
+
+To produce the model **and** these companions in one pass — one download, one
+KEGG snapshot — add `--emit-compound-sets` to `run_mummichog_model.py` (or set
+`mummichog_model.emit_compound_sets: true` in `config/config.yml`); the companions
+are then recorded in the model manifest under `companion_files`. Both source
+inputs (`kegg_org` / `kaas`) work here too, under `kegg_compound_sets:` in the
+config.
+
+---
+
 ## Source modules
 
 | Module | File | Use when | Auto-downloads |
@@ -154,7 +197,8 @@ has none of its own.
 | GO (non-model)   | `src/prepare_go.py`           | Trinotate GO         | GO term names + hierarchy |
 | Ensembl/BioMart  | `src/prepare_ensembl.py`      | genome in Ensembl    | BioMart attributes, KEGG map |
 | UniProt          | `src/prepare_uniprot.py`      | proteome in UniProt  | UniProt REST, KEGG map |
-| mummichog model  | `src/prepare_mummichog_model.py` | metabolomics (`mummichog -n`) | KEGG compounds/reactions/pathways |
+| mummichog model  | `src/prepare_mummichog_model.py` | metabolomics, m/z-based (`mummichog -n`) | KEGG compounds/reactions/pathways |
+| KEGG compound sets | `src/prepare_kegg_compound_sets.py` | metabolomics, ID-based (GMT) | (reuses the model's KEGG source) |
 
 The non-model KEGG + GO modules are the primary, fully-featured path. Ensembl
 and UniProt modules cover model organisms and share the same writers/output
@@ -175,11 +219,14 @@ multiomic-annotation-prep/
 │   ├── prepare_ensembl.py       # Ensembl/BioMart path (model organisms)
 │   ├── prepare_uniprot.py       # UniProt path (proteomics)
 │   ├── masses.py                # neutral monoisotopic mass (via mass2chem)
-│   └── prepare_mummichog_model.py  # KEGG -> mummichog metabolic model (JSON)
+│   ├── kegg_entities.py         # KEGG source loading (KO -> reactions -> compounds -> pathways)
+│   ├── prepare_mummichog_model.py     # KEGG -> mummichog metabolic model (JSON)
+│   └── prepare_kegg_compound_sets.py  # KEGG -> compound-set GMT + table (ID-based)
 ├── scripts/
 │   ├── run_kegg_nonmodel.py
 │   ├── run_go.py
 │   ├── run_mummichog_model.py
+│   ├── run_kegg_compound_sets.py
 │   └── run_all.py               # config-driven, runs selected modules
 ├── config/config.yml
 ├── examples/                    # tiny inputs so it runs out of the box

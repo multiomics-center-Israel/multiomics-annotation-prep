@@ -63,15 +63,18 @@ src/
   prepare_ensembl.py       # pybiomart path (model organisms)                     [secondary]
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
   masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
+  kegg_entities.py         # KEGG source loading (load_source: KO->reactions->compounds->pathways); shared, light
   prepare_mummichog_model.py # KEGG org code -> mummichog metabolic model JSON + manifest  [NEW output type]
+  prepare_kegg_compound_sets.py # KEGG -> pathway compound-set GMT + table (ID-based enrichment)  [NEW output type]
 scripts/
   run_kegg_nonmodel.py     # CLI wrapper (argparse)
   run_go.py                # CLI wrapper
   run_mummichog_model.py   # CLI wrapper for the mummichog model
+  run_kegg_compound_sets.py # CLI wrapper for the compound-set GMT + table
   run_all.py               # config-driven driver (reads config/config.yml)
 config/config.yml          # which modules run + their inputs
 requirements-mummichog.txt # scoped, pinned optional deps for the mummichog model only
-tests/                     # pytest: masses, KEGG parsers, model assembly, mummichog smoke
+tests/                     # pytest: masses, KEGG parsers, model assembly, mummichog smoke, compound sets
 examples/                  # tiny inputs so the tool runs end-to-end
 data/                      # download cache (git-ignored)
 results/                   # output files (git-ignored)
@@ -87,6 +90,20 @@ Contract: `MODEL_CONTRACT.md`. Its deps (`metDataModel`, `mass2chem`,
 `mummichog`) are optional imports scoped to this module
 (`requirements-mummichog.txt`) so the gene-set modules stay `requests`+
 `pyyaml`-only.
+
+That shared pipeline lives in **`kegg_entities.py`** (`load_source`,
+`is_metabolic_map`, `SOURCE_TOKENS`), a dependency-light module (`requests` +
+`pyyaml` only) so both compound-centric outputs reuse it without importing each
+other. The **`prepare_kegg_compound_sets.py`** module builds the ID-based
+enrichment inputs (`<stem>.compound_pathway.gmt` + `<stem>.pathway2compound.tab`,
+same stem as the model) from that same `load_source`. It applies NO mass filter,
+so its compound set is a **superset** of the model's compounds (ID-based ORA /
+GSEA / QEA need no mass). It has no heavy deps. Set
+`mummichog_model.emit_compound_sets: true` (or `--emit-compound-sets`) to emit the
+model + these companions from a single `load_source` (one KEGG snapshot);
+companions are then listed in the model manifest's `companion_files`.
+`multiomic-core` loads the GMT as a plain data file (no sha256 pinning, unlike the
+model), so the sidecar manifest is provenance-only.
 
 ## How to run
 
@@ -141,9 +158,17 @@ ensembl.org, rest.uniprot.org). Downloads are cached under `data/`; pass
 
 ## Verification (no CI yet)
 
-To sanity-check a change, run both `run_*` scripts on the `examples/` inputs
-and confirm the expected output files appear in `results/` with the correct
-headers:
+Offline: run the test suite. The parser / writer / compound-set tests need no
+network and no heavy deps; the model-assembly + mummichog-smoke tests skip
+automatically unless the scoped optional deps are installed.
+
+```bash
+python -m pytest tests/ -q
+```
+
+To sanity-check a change end-to-end, run the `run_*` scripts on the `examples/`
+inputs and confirm the expected output files appear in `results/` with the
+correct headers:
 
 ```bash
 rm -rf results

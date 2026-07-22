@@ -13,6 +13,11 @@ Outputs (see MODEL_CONTRACT.md, the source of truth):
 * ``<model_kegg_code>_<source>_<YYYYMMDD>.json``   -- the model
 * ``<same-stem>.manifest.json``                    -- provenance, counts, sha256
 
+Optionally (``emit_compound_sets=True``) the same ``load_source`` result is also
+written as an ID-based compound-set GMT + readable table (see
+:mod:`prepare_kegg_compound_sets`); those companions are recorded in the manifest
+under ``companion_files``.
+
 Input source is a config choice:
 
 * ``kegg_org`` -- PRIMARY: all compounds/reactions/pathways for a KEGG organism
@@ -20,14 +25,14 @@ Input source is a config choice:
   Coelastrella which is not in KEGG). Implemented here.
 * ``kaas``     -- SECONDARY: a non-model organism from a KAAS KO list
   (KO/EC -> reactions -> compounds -> pathways). A clean seam is left for it
-  (see :func:`load_kaas_source`); it is not implemented yet.
+  (see :func:`kegg_entities.load_source`); it is not implemented yet.
 
 Heavy, model-specific dependencies (metDataModel for the structure, mass2chem
 for the masses) are imported lazily so the gene-set modules stay dependency-free.
-Pin them via ``requirements-mummichog.txt``.
+Pin them via ``requirements-mummichog.txt``. The source-loading step lives in
+:mod:`kegg_entities` so the gene-set / compound-set modules can reuse it.
 """
 
-import hashlib
 import json
 import os
 import subprocess
@@ -35,166 +40,11 @@ import sys
 from collections import defaultdict
 from datetime import datetime
 
-from .download_kegg import (
-    _dedup,
-    download_kegg_info,
-    download_kegg_org_ko_links,
-    download_kegg_org_pathways,
-    download_ko_reaction_links,
-    iter_kegg_records,
-    kegg_get_batched,
-    kegg_snapshot_version,
-    parse_compound_record,
-    parse_kegg_info_dates,
-    parse_ko_reaction_links,
-    parse_org_ko_links,
-    parse_org_pathways,
-    parse_reaction_record,
-)
+from .kegg_entities import SOURCE_TOKENS, is_metabolic_map, load_source
 from .masses import neutral_mono_mass
-from .utils import ensure_dir, log_msg
+from .utils import ensure_dir, git_head_sha, log_msg, sha256_file
 
 PROTON = 1.00727646677  # matches mummichog.config.PROTON
-
-SOURCE_TOKENS = {"kegg_org": "kegg", "kaas": "kaas"}
-
-
-def _is_metabolic_map(number):
-    """True for a real metabolic pathway map (KEGG ``00xxx``, i.e. 00001-00999).
-
-    Excludes KEGG's "Global and overview maps" (the 01100-01299 band: Metabolic
-    pathways, Biosynthesis of secondary metabolites, Carbon metabolism,
-    Biosynthesis of amino acids, ...) and any non-metabolic category. Those
-    overview maps aggregate many pathways and distort mummichog enrichment, so
-    they are kept out of the model's pathway list.
-    """
-    try:
-        return 0 < int(number) < 1000
-    except (TypeError, ValueError):
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Source loading. Both the organism-code path and the KAAS path reduce to the
-# SAME shape: a KO list -> reactions -> compounds -> pathways. The only thing
-# that differs is where the KO list comes from.
-#
-# KEGG does not link organism genes directly to reactions
-# (link/reaction/<org> is invalid). The organism's reactions are resolved
-# through KO: link/ko/<org> (gene->KO) intersected with link/reaction/ko
-# (KO->reaction, KEGG-wide).
-# ---------------------------------------------------------------------------
-
-def parse_kaas_ko_list(kaas_file):
-    """Parse a KAAS query.ko.txt (gene<TAB>KO) -> (ordered KO ids, gene->KOs)."""
-    ko_ids, gene2ko = [], defaultdict(list)
-    with open(kaas_file) as f:
-        for line in f:
-            line = line.rstrip("\n")
-            if not line:
-                continue
-            parts = line.split("\t", 1)
-            gene = parts[0].strip()
-            ko = parts[1].strip().replace("ko:", "") if len(parts) > 1 else ""
-            if not ko:
-                continue
-            gene2ko[gene].append(ko)
-            ko_ids.append(ko)
-    return _dedup(ko_ids), dict(gene2ko)
-
-
-def resolve_ko_list(source, kegg_code, cache_dir, refresh, kaas_file):
-    """The unifying step: get the organism's KO list from either source.
-
-    Returns ``(ko_list, {"n_genes": ...})``.
-    """
-    if source == "kegg_org":
-        if not kegg_code:
-            raise ValueError("kegg_code is required for source='kegg_org'")
-        log_msg("KO list from KEGG organism code: ", kegg_code)
-        ko_list, gene2ko = parse_org_ko_links(
-            download_kegg_org_ko_links(kegg_code, cache_dir, refresh))
-    elif source == "kaas":
-        if not kaas_file:
-            raise ValueError("kaas_file is required for source='kaas'")
-        log_msg("KO list from KAAS file: ", kaas_file)
-        ko_list, gene2ko = parse_kaas_ko_list(kaas_file)
-    else:
-        raise ValueError(
-            f"Unknown source {source!r} (expected 'kegg_org' or 'kaas')")
-    log_msg("  genes: ", len(gene2ko), "; distinct KOs: ", len(ko_list))
-    return ko_list, {"n_genes": len(gene2ko)}
-
-
-def load_source(source, kegg_code, cache_dir, refresh=False, kaas_file=None):
-    """KO list -> reactions -> compounds -> pathways (source-agnostic core).
-
-    Returns ``{reactions, compounds, pathway_names, pathway_prefix, source,
-    source_version, ko_coverage}``.
-    """
-    ko_list, ko_meta = resolve_ko_list(source, kegg_code, cache_dir, refresh,
-                                       kaas_file)
-
-    # KO -> reaction (KEGG-wide), intersected with the organism's KOs.
-    ko2rxn = parse_ko_reaction_links(download_ko_reaction_links(cache_dir, refresh))
-    kos_with_rxn = [ko for ko in ko_list if ko2rxn.get(ko)]
-    reaction_ids = _dedup([r for ko in ko_list for r in ko2rxn.get(ko, [])])
-    log_msg("  KOs mapping to >=1 reaction: ", len(kos_with_rxn), "/",
-            len(ko_list), "; reactions: ", len(reaction_ids))
-
-    rn_text = kegg_get_batched("rn", reaction_ids, cache_dir, refresh)
-    reactions = [r for r in (parse_reaction_record(rec)
-                             for rec in iter_kegg_records(rn_text)) if r["id"]]
-
-    cpd_ids = _dedup([c for r in reactions
-                      for c in (r["reactants"] + r["products"])])
-    log_msg("  distinct compounds referenced by reactions: ", len(cpd_ids))
-    cpd_text = kegg_get_batched("cpd", cpd_ids, cache_dir, refresh)
-    compounds = {}
-    for rec in iter_kegg_records(cpd_text):
-        c = parse_compound_record(rec)
-        if c["id"]:
-            compounds[c["id"]] = c
-
-    # Pathways: organism pathways for a KEGG code (cre#####); reference maps
-    # (map#####) for KAAS, since a non-model organism has none of its own.
-    if source == "kegg_org":
-        pathway_names = parse_org_pathways(
-            download_kegg_org_pathways(kegg_code, cache_dir, refresh))
-        pathway_prefix, source_str = kegg_code, "KEGG REST"
-    else:
-        pathway_names = parse_org_pathways(
-            download_kegg_org_pathways(None, cache_dir, refresh))
-        pathway_prefix, source_str = "map", "KEGG REST (KAAS KO list)"
-    log_msg("  candidate pathways: ", len(pathway_names))
-
-    # info/kegg no longer has a release number, only per-database snapshot dates;
-    # provenance is the newest date across the dbs this model is built from.
-    source_version, kegg_db_dates = None, {}
-    try:
-        all_dates = parse_kegg_info_dates(
-            download_kegg_info("kegg", cache_dir, refresh))
-        source_version = kegg_snapshot_version(all_dates)
-        kegg_db_dates = {db: all_dates.get(db)
-                         for db in ("pathway", "reaction", "compound")}
-    except Exception as exc:  # noqa: BLE001 - version is best-effort, not fatal
-        log_msg("  (KEGG snapshot date unavailable: ", exc, ")")
-
-    return {
-        "reactions": reactions,
-        "compounds": compounds,
-        "pathway_names": pathway_names,
-        "pathway_prefix": pathway_prefix,
-        "source": source_str,
-        "source_version": source_version,
-        "kegg_db_dates": kegg_db_dates,
-        "ko_coverage": {
-            "n_genes": ko_meta.get("n_genes"),
-            "n_kos": len(ko_list),
-            "n_kos_with_reaction": len(kos_with_rxn),
-            "n_reactions_from_kos": len(reaction_ids),
-        },
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +117,7 @@ def assemble_model(reactions, compounds, pathway_names, *,
     pw_rxns = defaultdict(set)
     for rid, nums in rxn_refpaths.items():
         for num in nums:
-            if not _is_metabolic_map(num):  # drop global/overview maps
+            if not is_metabolic_map(num):  # drop global/overview maps
                 continue
             pid = f"{pathway_prefix}{num}"
             if pid in pathway_names:
@@ -427,33 +277,17 @@ def validate_model(model_path, mode="pos", permutations=20, cutoff=0.05):
 # Orchestration + output
 # ---------------------------------------------------------------------------
 
-def _sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _git_sha():
-    try:
-        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        out = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
-                             capture_output=True, text=True, timeout=10)
-        if out.returncode == 0:
-            return out.stdout.strip()
-    except Exception:  # noqa: BLE001 - provenance is best-effort
-        pass
-    return None
-
-
 def prepare_mummichog_model(kegg_code, out_dir, cache_dir, *,
                             source="kegg_org", model_organism=None,
                             model_kegg_code=None, target_organism=None,
                             model_is_surrogate=None, source_version=None,
                             date=None, refresh=False, validate=False,
-                            kaas_file=None):
+                            kaas_file=None, emit_compound_sets=False):
     """Build + write the model JSON and its sidecar manifest.
+
+    When *emit_compound_sets* is true, the same ``load_source`` result is also
+    written as an ID-based compound-set GMT + readable table (same stem, same
+    KEGG snapshot), recorded in the manifest under ``companion_files``.
 
     Returns ``(model_path, manifest_path)``.
     """
@@ -483,7 +317,7 @@ def prepare_mummichog_model(kegg_code, out_dir, cache_dir, *,
         "model_is_surrogate": model_is_surrogate,
         "source": src.get("source", "KEGG REST"),
         "source_version": resolved_version,
-        "builder_version": _git_sha() or "unknown",
+        "builder_version": git_head_sha() or "unknown",
     }
 
     model, counts, spot = assemble_model(
@@ -527,7 +361,7 @@ def prepare_mummichog_model(kegg_code, out_dir, cache_dir, *,
 
     manifest = {
         "model_file": os.path.basename(model_path),
-        "sha256": _sha256(model_path),
+        "sha256": sha256_file(model_path),
         "model_organism": meta_data["model_organism"],
         "model_kegg_code": model_kegg_code,
         "target_organism": meta_data["target_organism"],
@@ -546,6 +380,29 @@ def prepare_mummichog_model(kegg_code, out_dir, cache_dir, *,
         "mass_spotcheck": spotcheck,
         "validation": validation,
     }
+
+    # Optional companion artifacts: ID-based compound-set GMT + readable table,
+    # built from the SAME src (same KEGG snapshot). Recorded in the manifest so
+    # the pipeline can pin/verify them alongside the model if it ever chooses to.
+    if emit_compound_sets:
+        from .prepare_kegg_compound_sets import (pathway_compound_sets,
+                                                 write_compound_set_files)
+        pw2cpd = pathway_compound_sets(
+            src["reactions"], src["pathway_names"], src["compounds"],
+            src["pathway_prefix"])
+        written = write_compound_set_files(
+            pw2cpd, src["pathway_names"], src["compounds"], out_dir, stem)
+        manifest["companion_files"] = [
+            {"file": os.path.basename(written["gmt_path"]),
+             "role": "compound_pathway_gmt",
+             "sha256": sha256_file(written["gmt_path"]),
+             "counts": written["counts"]},
+            {"file": os.path.basename(written["tab_path"]),
+             "role": "pathway2compound_table",
+             "sha256": sha256_file(written["tab_path"]),
+             "counts": written["counts"]},
+        ]
+
     manifest_path = os.path.join(out_dir, f"{stem}.manifest.json")
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=2)

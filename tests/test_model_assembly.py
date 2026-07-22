@@ -16,8 +16,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 pytest.importorskip("mass2chem", reason="scoped optional dep")
 pytest.importorskip("metDataModel", reason="scoped optional dep")
 
+from src import kegg_entities as ke  # noqa: E402
 from src import prepare_mummichog_model as pm  # noqa: E402
 
+# load_source and its KEGG downloads now live in kegg_entities, so the download
+# functions must be monkeypatched on THAT module (that's where load_source looks
+# them up), not on prepare_mummichog_model.
 FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 
@@ -27,20 +31,20 @@ def built_model(tmp_path, monkeypatch):
     rn_text = open(os.path.join(FIX, "kegg_reactions.txt")).read()
     cpd_text = open(os.path.join(FIX, "kegg_compounds.txt")).read()
 
-    monkeypatch.setattr(pm, "download_kegg_org_ko_links",
+    monkeypatch.setattr(ke, "download_kegg_org_ko_links",
                         lambda code, cache, refresh=False:
                         os.path.join(FIX, "link_ko_cre.txt"))
-    monkeypatch.setattr(pm, "download_ko_reaction_links",
+    monkeypatch.setattr(ke, "download_ko_reaction_links",
                         lambda cache, refresh=False:
                         os.path.join(FIX, "link_reaction_ko.txt"))
-    monkeypatch.setattr(pm, "kegg_get_batched",
+    monkeypatch.setattr(ke, "kegg_get_batched",
                         lambda prefix, ids, cache, refresh=False:
                         rn_text if prefix == "rn" else cpd_text)
-    monkeypatch.setattr(pm, "download_kegg_org_pathways",
+    monkeypatch.setattr(ke, "download_kegg_org_pathways",
                         lambda code, cache, refresh=False:
                         os.path.join(FIX, "cre_pathways.txt" if code
                                      else "ref_pathways.txt"))
-    monkeypatch.setattr(pm, "download_kegg_info",
+    monkeypatch.setattr(ke, "download_kegg_info",
                         lambda target, cache, refresh=False:
                         os.path.join(FIX, "info_kegg.txt"))
 
@@ -188,17 +192,17 @@ def test_kaas_source_builds_from_ko_file(tmp_path, monkeypatch):
     pathways taken from the KEGG-wide reference maps (organism not in KEGG)."""
     rn_text = open(os.path.join(FIX, "kegg_reactions.txt")).read()
     cpd_text = open(os.path.join(FIX, "kegg_compounds.txt")).read()
-    monkeypatch.setattr(pm, "download_ko_reaction_links",
+    monkeypatch.setattr(ke, "download_ko_reaction_links",
                         lambda cache, refresh=False:
                         os.path.join(FIX, "link_reaction_ko.txt"))
-    monkeypatch.setattr(pm, "kegg_get_batched",
+    monkeypatch.setattr(ke, "kegg_get_batched",
                         lambda prefix, ids, cache, refresh=False:
                         rn_text if prefix == "rn" else cpd_text)
-    monkeypatch.setattr(pm, "download_kegg_org_pathways",
+    monkeypatch.setattr(ke, "download_kegg_org_pathways",
                         lambda code, cache, refresh=False:
                         os.path.join(FIX, "cre_pathways.txt" if code
                                      else "ref_pathways.txt"))
-    monkeypatch.setattr(pm, "download_kegg_info",
+    monkeypatch.setattr(ke, "download_kegg_info",
                         lambda target, cache, refresh=False:
                         os.path.join(FIX, "info_kegg.txt"))
 

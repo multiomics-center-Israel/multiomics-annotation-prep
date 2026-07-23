@@ -251,6 +251,19 @@ gh release create cre_kegg_$(date -u +%Y%m%d) results/cre_kegg_*.json \
 `multiomic-core` then pins the Release download URLs in its config
 (`mummichog.model_ref` for the model, `enrichment.gmt_file` for the GMT).
 
+### Automated: one-click build + publish (recommended)
+
+Steps 1–3 are wrapped in a manually-dispatched GitHub Actions workflow,
+`.github/workflows/publish-organism-artifacts.yml`. Trigger it from the repo's
+**Actions** tab (*Build & publish organism artifacts* → **Run workflow**) with
+the organism codes (default `cre,cvr,mng`), a surrogate `target_organism`
+(default `Coelastrella sp.`), and an optional `date`. Each organism builds on a
+GitHub-hosted runner (open internet → KEGG reachable) and is published as a
+Release via `GITHUB_TOKEN`. Releases are immutable: a re-run on the same date
+fails fast rather than overwriting — bump the `date` for a rebuild. The workflow
+tolerates the known flaky `mummichog` colored-map crash (`rescale_color`) as long
+as the pathway + module analysis tables were produced.
+
 ---
 
 ## Source modules

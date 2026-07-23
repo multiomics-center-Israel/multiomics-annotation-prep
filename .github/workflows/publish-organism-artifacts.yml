@@ -1,0 +1,159 @@
+name: Build & publish organism artifacts
+
+# Manually-dispatched pipeline that builds the mummichog metabolic model + the
+# ID-based compound-set companions for one or more KEGG organism codes, and
+# publishes each as a dated, immutable GitHub Release (per MODEL_CONTRACT.md).
+#
+# Runs on GitHub-hosted runners, which have open internet (so rest.kegg.jp is
+# reachable) and a GITHUB_TOKEN allowed to create Releases -- the sanctioned
+# path when interactive Claude Code sessions cannot create releases themselves.
+
+on:
+  workflow_dispatch:
+    inputs:
+      organisms:
+        description: "Comma-separated KEGG organism codes to build & publish"
+        type: string
+        default: "cre,cvr,mng"
+      target_organism:
+        description: "Organism the models stand in for (surrogate). Leave empty to record each organism as itself."
+        type: string
+        default: "Coelastrella sp."
+      date:
+        description: "Build date stamp YYYYMMDD for the file stem + release tag (empty = today, UTC)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write   # required to create Releases
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      date: ${{ steps.gen.outputs.date }}
+    steps:
+      - id: gen
+        env:
+          ORGANISMS: ${{ inputs.organisms }}
+          IN_DATE: ${{ inputs.date }}
+        run: |
+          python3 - <<'PY'
+          import datetime, json, os
+          codes = [c.strip() for c in os.environ["ORGANISMS"].split(",") if c.strip()]
+          # Known green-algae surrogates for Coelastrella sp. Extend this map to
+          # add more organisms; unknown codes build with an empty model_organism.
+          NAMES = {
+              "cre": "Chlamydomonas reinhardtii",
+              "cvr": "Chlorella variabilis",
+              "mng": "Monoraphidium neglectum",
+          }
+          include = [{"code": c, "model_organism": NAMES.get(c, "")} for c in codes]
+          date = os.environ["IN_DATE"].strip() or datetime.datetime.utcnow().strftime("%Y%m%d")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps({"include": include}) + "\n")
+              f.write("date=" + date + "\n")
+          print("organisms:", include, "| date:", date)
+          PY
+
+  build-and-release:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # one organism failing must not cancel the others
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    env:
+      DATE: ${{ needs.prepare.outputs.date }}
+      CODE: ${{ matrix.code }}
+      MODEL_ORGANISM: ${{ matrix.model_organism }}
+      TARGET_ORGANISM: ${{ inputs.target_organism }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pyyaml
+          pip install -r requirements-mummichog.txt
+
+      - name: Fail early if the release already exists (artifacts are immutable)
+        run: |
+          tag="${CODE}_kegg_${DATE}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists. Artifacts are immutable (MODEL_CONTRACT.md) -- bump the date input or delete the release manually before re-running."
+            exit 1
+          fi
+
+      - name: Build model + compound-set companions
+        run: |
+          args=(--kegg-code "$CODE" --emit-compound-sets --validate --out results --cache data)
+          [ -n "$MODEL_ORGANISM" ] && args+=(--model-organism "$MODEL_ORGANISM")
+          [ -n "$TARGET_ORGANISM" ] && args+=(--target-organism "$TARGET_ORGANISM")
+          python scripts/run_mummichog_model.py "${args[@]}"
+
+      - name: Verify acceptance criteria (tolerant of the flaky mummichog plot crash)
+        run: |
+          python3 - <<'PY'
+          import glob, hashlib, json, os, sys
+          code, date = os.environ["CODE"], os.environ["DATE"]
+          stem = f"{code}_kegg_{date}"
+          man = json.load(open(f"results/{stem}.manifest.json"))
+
+          def sha(p):
+              h = hashlib.sha256()
+              with open(p, "rb") as f:
+                  for ch in iter(lambda: f.read(65536), b""):
+                      h.update(ch)
+              return h.hexdigest()
+
+          # model + companion checksums match the files on disk
+          assert man["sha256"] == sha(f"results/{stem}.json"), "model sha256 mismatch"
+          companions = man.get("companion_files", [])
+          assert len(companions) == 2, "expected 2 companion files (gmt + tab)"
+          for c in companions:
+              p = f"results/{c['file']}"
+              assert os.path.exists(p), f"missing companion {p}"
+              assert c["sha256"] == sha(p), f"companion sha256 mismatch {p}"
+
+          v = man["validation"]
+          sr = v.get("smoke_run", {})
+          assert v.get("mass_spotcheck_passed") is True, "mass spot-check failed"
+          # MODEL_CONTRACT acceptance #1: loads via -n and writes pathway+module
+          # tables. smoke_run_exit_0 can be a flaky False from mummichog's
+          # post-analysis colored-map crash (rescale_color); the real signal is
+          # that both analysis tables were produced.
+          if v.get("smoke_run_exit_0") is True:
+              print(f"{stem}: validation exit 0")
+          elif sr.get("pathway_table_written") and sr.get("module_table_written"):
+              print(f"::warning::{stem}: mummichog exited non-zero but pathway+module "
+                    "tables were written (known flaky rescale_color crash); accepting.")
+          else:
+              print(f"::error::{stem}: validation failed -- analysis tables not written")
+              sys.exit(1)
+
+          c = man["counts"]
+          print(f"OK {stem}: compounds={c['compounds']} reactions={c['reactions']} "
+                f"pathways={c['pathways']}")
+          PY
+
+      - name: Publish GitHub Release
+        run: |
+          tag="${CODE}_kegg_${DATE}"
+          notes="KEGG-derived mummichog metabolic model + ID-based compound sets."
+          [ -n "$MODEL_ORGANISM" ] && notes="$notes Model organism: $MODEL_ORGANISM."
+          [ -n "$TARGET_ORGANISM" ] && notes="$notes Surrogate for: $TARGET_ORGANISM."
+          gh release create "$tag" \
+            "results/${tag}.json" \
+            "results/${tag}.manifest.json" \
+            "results/${tag}.compound_pathway.gmt" \
+            "results/${tag}.pathway2compound.tab" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$tag" \
+            --notes "$notes"
+          echo "Published release $tag"

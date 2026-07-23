@@ -189,6 +189,70 @@ config.
 
 ---
 
+## Runbook — build & publish organism artifacts
+
+The commands below **download live from KEGG** (`rest.kegg.jp`), so run them where
+that host is reachable: your **local machine** (normal internet — nothing to
+configure), or a cloud/CI environment whose network policy allows `rest.kegg.jp`.
+A restricted sandbox that blocks KEGG egress will fail with a proxy `403`.
+
+### 1. Set up (once)
+
+```bash
+git clone https://github.com/multiomics-center-Israel/multiomics-annotation-prep.git
+cd multiomics-annotation-prep
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install requests pyyaml                            # gene-set + compound-set modules
+pip install -r requirements-mummichog.txt              # model: metDataModel / mass2chem / mummichog
+```
+
+### 2. Build (model + compound-set companions, one KEGG snapshot each)
+
+`--emit-compound-sets` writes the model **and** the ID-based `.gmt` + `.tab` from a
+single `load_source`. `--validate` runs a `mummichog -n` smoke test. These green
+algae stand in for *Coelastrella sp.* (not in KEGG); drop `--target-organism` to
+record an organism as itself (`model_is_surrogate: false`).
+
+```bash
+# cre — Chlamydomonas reinhardtii
+python scripts/run_mummichog_model.py --kegg-code cre \
+    --model-organism "Chlamydomonas reinhardtii" --target-organism "Coelastrella sp." \
+    --emit-compound-sets --validate --out results --cache data
+
+# cvr — Chlorella variabilis
+python scripts/run_mummichog_model.py --kegg-code cvr \
+    --model-organism "Chlorella variabilis" --target-organism "Coelastrella sp." \
+    --emit-compound-sets --validate --out results --cache data
+
+# mng — Monoraphidium neglectum
+python scripts/run_mummichog_model.py --kegg-code mng \
+    --model-organism "Monoraphidium neglectum" --target-organism "Coelastrella sp." \
+    --emit-compound-sets --validate --out results --cache data
+```
+
+Each run writes to `results/` (per organism, `<code>_kegg_<YYYYMMDD>`):
+`.json`, `.manifest.json`, `.compound_pathway.gmt`, `.pathway2compound.tab`.
+
+### 3. Publish to a GitHub Release (do **not** commit the artifacts)
+
+`results/` and `data/` are git-ignored on purpose — per `MODEL_CONTRACT.md`
+artifacts are **dated, immutable, and published as GitHub Releases** (one tag per
+organism/version), not checked into the repo. Upload via the web UI (Releases →
+*Draft a new release* → drag the files in) or the CLI:
+
+```bash
+# example for one organism (repeat per organism/date)
+gh release create cre_kegg_$(date -u +%Y%m%d) results/cre_kegg_*.json \
+    results/cre_kegg_*.manifest.json results/cre_kegg_*.compound_pathway.gmt \
+    results/cre_kegg_*.pathway2compound.tab \
+    --title "cre_kegg_$(date -u +%Y%m%d)" --notes "KEGG-derived model + compound sets"
+```
+
+`multiomic-core` then pins the Release download URLs in its config
+(`mummichog.model_ref` for the model, `enrichment.gmt_file` for the GMT).
+
+---
+
 ## Source modules
 
 | Module | File | Use when | Auto-downloads |

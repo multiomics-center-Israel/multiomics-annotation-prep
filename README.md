@@ -10,6 +10,9 @@ Unlike the manual approach in
 resources (KEGG REST API, Gene Ontology, Ensembl/BioMart, UniProt) and produces
 ready-to-use output files.
 
+> 🌿 **מדריך צוות (Hebrew team guide):** [`docs/team-guide-he.md`](docs/team-guide-he.md)
+> — how to build artifacts, run the pipeline, and add a new organism, end to end.
+
 ---
 
 ## What it produces

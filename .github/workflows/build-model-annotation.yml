@@ -1,0 +1,148 @@
+name: Build model-organism annotation
+
+# Manually-dispatched pipeline for a MODEL organism (one with a reference genome
+# or a UniProt proteome). It downloads GO -- and optionally KEGG -- annotation
+# directly (no KAAS/Trinotate), producing the gene-based tables the RNA pipeline
+# reads from annotation_dir, and publishes them as a dated Release.
+#
+#   source: ensembl  -> Ensembl/BioMart, keyed on Ensembl gene IDs (needs a
+#                        dataset; pick the right mart/host for the division).
+#   source: uniprot  -> UniProt REST, keyed on UniProt accessions (needs a
+#                        taxon id).
+#
+# Output tables (GO2gene_{BP,MF,CC}.tab + GO2name_{BP,MF,CC}.tab, hierarchy-
+# expanded; KEGG_pathway2gene/2name.tab when kegg_org is set) drop straight into
+# modes.rna.enrichment.annotation_dir. Gene IDs are the source's own ID space --
+# they must match your counts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Annotation source"
+        type: choice
+        options: [ensembl, uniprot]
+        default: ensembl
+      label:
+        description: "Short label for the release tag/stem (e.g. athaliana, cre)"
+        type: string
+        required: true
+      dataset:
+        description: "[ensembl] BioMart dataset, e.g. athaliana_eg_gene (required for ensembl)"
+        type: string
+        default: ""
+      mart:
+        description: "[ensembl] BioMart mart: ensembl | plants_mart | protists_mart | fungi_mart | metazoa_mart"
+        type: string
+        default: "ensembl"
+      host:
+        description: "[ensembl] BioMart host (empty = www.ensembl.org; e.g. https://plants.ensembl.org)"
+        type: string
+        default: ""
+      taxon_id:
+        description: "[uniprot] NCBI taxon id, e.g. 3702 (required for uniprot)"
+        type: string
+        default: ""
+      reviewed:
+        description: "[uniprot] Swiss-Prot (reviewed) only"
+        type: boolean
+        default: true
+      kegg_org:
+        description: "Optional KEGG organism code -> ALSO build KEGG_pathway tables (e.g. ath, cre)"
+        type: string
+        default: ""
+      date:
+        description: "Release date stamp YYYYMMDD (empty = today, UTC)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write   # required to create Releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE: ${{ inputs.source }}
+      LABEL: ${{ inputs.label }}
+      DATASET: ${{ inputs.dataset }}
+      MART: ${{ inputs.mart }}
+      HOST: ${{ inputs.host }}
+      TAXON_ID: ${{ inputs.taxon_id }}
+      REVIEWED: ${{ inputs.reviewed }}
+      KEGG_ORG: ${{ inputs.kegg_org }}
+      IN_DATE: ${{ inputs.date }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install requests pyyaml
+          if [ "$SOURCE" = "ensembl" ]; then pip install pybiomart; fi
+
+      - name: Validate inputs
+        run: |
+          if ! printf '%s' "$LABEL" | grep -Eq '^[A-Za-z0-9_-]+$'; then
+            echo "::error::label must be letters/digits/underscore/hyphen (got '$LABEL')."
+            exit 1
+          fi
+          if [ -n "$IN_DATE" ] && ! printf '%s' "$IN_DATE" | grep -Eq '^[0-9]{8}$'; then
+            echo "::error::date must be YYYYMMDD (got '$IN_DATE')."
+            exit 1
+          fi
+          if [ "$SOURCE" = "ensembl" ] && [ -z "$DATASET" ]; then
+            echo "::error::dataset is required for source=ensembl."
+            exit 1
+          fi
+          if [ "$SOURCE" = "uniprot" ] && [ -z "$TAXON_ID" ]; then
+            echo "::error::taxon_id is required for source=uniprot."
+            exit 1
+          fi
+
+      - name: Build annotation tables
+        run: |
+          out="annotation_out"
+          mkdir -p "$out"
+          if [ "$SOURCE" = "ensembl" ]; then
+            args=(--dataset "$DATASET" --mart "$MART" --out "$out" --cache data)
+            [ -n "$HOST" ]     && args+=(--host "$HOST")
+            [ -n "$KEGG_ORG" ] && args+=(--kegg-org "$KEGG_ORG")
+            python scripts/run_ensembl.py "${args[@]}"
+          else
+            args=(--taxon-id "$TAXON_ID" --out "$out" --cache data)
+            [ "$REVIEWED" = "false" ] && args+=(--no-reviewed)
+            [ -n "$KEGG_ORG" ]        && args+=(--kegg-org "$KEGG_ORG")
+            python scripts/run_uniprot.py "${args[@]}"
+          fi
+          echo "== built files =="
+          ls -la "$out"
+          ls "$out"/*.tab
+
+      - name: Publish Release
+        run: |
+          date="$IN_DATE"
+          [ -z "$date" ] && date="$(date -u +%Y%m%d)"
+          tag="${LABEL}_${SOURCE}_annot_${date}"
+          out="annotation_out"
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists -- bump the date input (artifacts are immutable)."
+            exit 1
+          fi
+
+          zip="${tag}.zip"
+          ( cd "$out" && zip -r "../$zip" . )
+
+          gh release create "$tag" "$zip" "$out"/*.tab \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$tag" \
+            --notes "GO (and KEGG when kegg_org is set) annotation tables (annotation_dir) from ${SOURCE} for '${LABEL}'.
+          Download ${zip} and unzip into your project's annotation_dir, then point
+          modes.rna.enrichment.annotation_dir at that folder.
+          NOTE: gene IDs are the ${SOURCE} ID space -- they must match your counts' gene IDs."
+          echo "Published $tag"

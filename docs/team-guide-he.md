@@ -217,10 +217,10 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 לא צריך KAAS/Trinotate — מורידים GO ישירות. שני מודולים, אותם קבצי פלט (`GO2gene_{BP,MF,CC}.tab` + `GO2name_…`, מורחבים היררכית → נכנסים לאותו `annotation_dir`):
 
-- **Ensembl / BioMart** (`prepare_ensembl.py`) — לפי Ensembl gene ID. דורש `pip install pybiomart`. רץ דרך בלוק `ensembl:` ב‑`config.yml` + `python scripts/run_all.py`. ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
-- **UniProt** (`prepare_uniprot.py`) — לפי `taxon_id` (Swiss-Prot/reviewed), ממופתח ל‑UniProt accessions. רץ דרך בלוק `uniprot:` + `run_all.py`.
+- **Ensembl / BioMart** (`run_ensembl.py`) — לפי Ensembl gene ID. דורש `pybiomart`. ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
+- **UniProt** (`run_uniprot.py`) — לפי `taxon_id` (Swiss-Prot/reviewed), ממופתח ל‑UniProt accessions.
 
-*(Ensembl/UniProt רצים כרגע דרך config בלבד — בלי CLI/workflow ייעודי כמו RNA/KEGG.)*
+**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot`, ממלאים `dataset` (Ensembl) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
 
 ### התאמת רמת ה‑ID (חוזר בכל מסלול)
 

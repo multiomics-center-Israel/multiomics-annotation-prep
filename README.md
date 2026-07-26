@@ -307,6 +307,8 @@ multiomic-annotation-prep/
 │   ├── run_go.py
 │   ├── run_mummichog_model.py
 │   ├── run_kegg_compound_sets.py
+│   ├── run_ensembl.py           # Ensembl/BioMart GO (+ KEGG) tables (model organisms)
+│   ├── run_uniprot.py           # UniProt GO (+ KEGG) tables (by taxon id)
 │   └── run_all.py               # config-driven, runs selected modules
 ├── config/config.yml
 ├── examples/                    # tiny inputs so it runs out of the box

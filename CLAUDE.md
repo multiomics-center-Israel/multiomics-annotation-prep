@@ -170,6 +170,15 @@ ensembl.org, rest.uniprot.org). Downloads are cached under `data/`; pass
   `--no-strip-isoform` if IDs are already gene-level.
 - KEGG `ko->path` keeps only reference pathways (`^map`). Organism-code pathways
   (`mmu00010` etc.) come from `download_kegg_org.py` instead.
+- KEGG's `/conv/` has **no `ensembl` gene database** (`conv/ensembl/<org>` → HTTP
+  400); its gene outside-DBs are only `ncbi-geneid`, `ncbi-proteinid`, `uniprot`.
+  So `prepare_ensembl` keys `KEGG_pathway2gene.tab` on Ensembl gene ids by
+  *bridging*: KEGG gene → NCBI gene id (`conv/ncbi-geneid/<org>`) → Ensembl gene
+  id (BioMart NCBI cross-ref, attr name varies by division — see
+  `_fetch_ncbi_xref`). Organisms whose KEGG gene ids already ARE Ensembl locus
+  codes (e.g. Arabidopsis `ath`) also resolve via the direct `ext_id_universe`
+  fallback in `prepare_kegg_by_org`. `prepare_uniprot` uses `conv/uniprot/<org>`
+  directly (no bridge). Do not "restore" a bare `conv/ensembl/<org>` call.
 - KEGG has **no gene->reaction link** for an organism (`link/reaction/<org>` is an
   invalid query → HTTP 400). The mummichog model resolves reactions via KO:
   `link/ko/<org>` (gene→KO) intersected with `link/reaction/ko` (KO→reaction,

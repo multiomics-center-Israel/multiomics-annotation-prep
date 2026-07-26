@@ -30,7 +30,12 @@ modules:
     mart:     ensembl                 # ensembl | plants_mart | protists_mart | fungi_mart | metazoa_mart
     host:     null                    # null = www.ensembl.org; e.g. https://plants.ensembl.org
     kegg_org: mmu                     # KEGG organism code (null to skip KEGG)
-    id_source: ensembl                # id space for KEGG mapping
+    id_source: ensembl                # id space for KEGG_pathway2gene.tab keys.
+                                      # 'ensembl' is bridged KEGG->ncbi-geneid->
+                                      # Ensembl (KEGG /conv has no ensembl DB);
+                                      # 'ncbi-geneid'|'ncbi-proteinid'|'uniprot'
+                                      # use KEGG /conv directly; 'kegg' keeps
+                                      # bare KEGG gene ids.
 
   # --- proteome in UniProt (proteomics) -----------------------------------
   uniprot:

@@ -5,7 +5,7 @@ import re
 from collections import defaultdict
 
 from .download_go import go_term_table, build_ancestor_cache, get_ancestors
-from .download_kegg_org import prepare_kegg_by_org
+from .download_kegg_org import kegg_to_ensembl_map, prepare_kegg_by_org
 from .utils import log_msg, write_go2gene, write_go2name, write_tab
 
 
@@ -39,6 +39,42 @@ def _resolve_mart(marts, mart):
         f"BioMart mart {mart!r} not found. Available: {', '.join(marts)}. "
         f"For a non-vertebrate genome set --host to the right division "
         f"(e.g. https://plants.ensembl.org with --mart plants_mart).")
+
+
+# BioMart's attribute for the NCBI/Entrez gene cross-reference is named
+# differently across divisions (main vs Ensembl Genomes). Try the common
+# spellings and use the first one the server accepts.
+_NCBI_XREF_ATTRS = ("entrezgene_id", "entrezgene", "entrezgene_trans_name")
+
+
+def _fetch_ncbi_xref(ds):
+    """Return ``{ncbi_gene_id: ensembl_gene_id}`` from BioMart, or ``{}``.
+
+    Used to bridge KEGG gene ids (which resolve to NCBI gene ids via KEGG
+    ``/conv/ncbi-geneid``) to Ensembl gene ids. Returns an empty dict if no
+    NCBI cross-reference attribute is available for the dataset.
+    """
+    for attr in _NCBI_XREF_ATTRS:
+        try:
+            df = ds.query(attributes=["ensembl_gene_id", attr])
+        except Exception:  # noqa: BLE001 - attribute not offered by this mart
+            continue
+        df.columns = ["ensembl", "ncbi"]
+        mapping = {}
+        for ens, ncbi in zip(df["ensembl"], df["ncbi"]):
+            ncbi = str(ncbi).strip()
+            # pandas may read integer Entrez ids as floats ("839580.0").
+            if ncbi.endswith(".0"):
+                ncbi = ncbi[:-2]
+            if ncbi and ncbi.lower() != "nan":
+                mapping[ncbi] = ens
+        if mapping:
+            log_msg("NCBI<->Ensembl cross-reference via BioMart attribute '",
+                    attr, "': ", len(mapping), " ids")
+            return mapping
+    log_msg("No NCBI/Entrez cross-reference attribute available; KEGG mapping "
+            "will rely on direct KEGG-id == Ensembl-id matches only")
+    return {}
 
 
 def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
@@ -92,6 +128,7 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
     ])
     annot.columns = ["Gene", "gene_name", "gene_biotype", "description"]
     annot_rows = [tuple(r) for r in annot.values]
+    ensembl_ids = {str(r[0]) for r in annot_rows}
     write_tab(annot_rows, list(annot.columns),
               os.path.join(out_dir, "Annotation.tab"))
 
@@ -129,11 +166,25 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
                       os.path.join(out_dir, f"GO2name_{ns}.tab"))
 
     if kegg_org:
-        # The KEGG companion is optional and additive; a failure here (e.g.
-        # KEGG's conv DB has no 'ensembl' mapping for this organism -> HTTP 400)
-        # must NOT discard the GO tables already written above.
+        # The KEGG companion is optional and additive; a failure here must NOT
+        # discard the GO tables already written above.
         try:
-            prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh, id_source)
+            if id_source == "ensembl":
+                # KEGG's /conv/ has no 'ensembl' database. Bridge KEGG gene ids
+                # to Ensembl gene ids through ncbi-geneid, using the NCBI
+                # cross-reference from this same BioMart dataset. Organisms
+                # whose KEGG gene ids ARE Ensembl locus codes (e.g. Arabidopsis
+                # 'ath') still resolve via the direct ext_id_universe fallback.
+                ncbi_to_ensembl = _fetch_ncbi_xref(ds)
+                ext_id_map = (kegg_to_ensembl_map(kegg_org, ncbi_to_ensembl,
+                                                  cache_dir, refresh)
+                              if ncbi_to_ensembl else None)
+                prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh,
+                                    id_source, ext_id_map=ext_id_map,
+                                    ext_id_universe=ensembl_ids)
+            else:
+                prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh,
+                                    id_source)
         except Exception as exc:  # noqa: BLE001 - KEGG tables are optional
             log_msg("KEGG mapping for ", kegg_org, " (id_source=", id_source,
                     ") failed; skipping KEGG tables, GO tables are unaffected: ",

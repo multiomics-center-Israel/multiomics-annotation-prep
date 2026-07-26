@@ -196,4 +196,36 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 ---
 
+## נספח — הכנת הקלט לאנוטציה (KAAS / Trinotate / Ensembl / UniProt)
+
+השלב היחיד שהוא ידני, *לפני* הריפו: להשיג את קבצי הקלט. הבחירה תלויה אם יש גנום מוער או רק טרנסקריפטום. **החוט המקשר בכל המסלולים:** מזהי הגנים בקבצי האנוטציה חייבים להיות אותו מרחב IDs כמו עמודת `gene_id` ב‑counts.
+
+### א. לא‑מודל — טרנסקריפטום de novo
+
+**KAAS → `query.ko.txt` (KEGG).** [KEGG KAAS](https://www.genome.jp/kegg/kaas/) מקצה KO לרצפים.
+- קלט: FASTA, מומלץ **חלבונים** (ORFs מ‑TransDecoder).
+- בחירות: `GHOSTX` (מהיר); שיטת **SBH** לטרנסקריפטום (BBH לגנום שלם); רשימת אורגניזמים ייחוס קרובים (אצות/צמחים).
+- פלט: `gene ⇥ KO` — משנים שם ל‑`query.ko.txt`. לסטים גדולים: BlastKOALA/GhostKOALA.
+
+**Trinotate → `trinotate_go.txt` (GO).** [Trinotate](https://github.com/Trinotate/Trinotate) מאחד blastx/blastp מול Swiss-Prot, hmmscan מול Pfam ועוד.
+- פייפליין: Trinity → TransDecoder → חיפושי הומולוגיה → טעינה ל‑SQLite → `Trinotate --report`.
+- חילוץ GO: הסקריפט `extract_GO_assignments_from_Trinotate_xls.pl` נותן `gene ⇥ GO`. ה‑parser של `run_go.py` עמיד לפורמט Trinotate המלא (מחלץ `GO:\d{7}`).
+
+**סדר הפעולות:** Trinity → TransDecoder → (KAAS + Trinotate במקביל) → שני הקבצים → העלאה ל‑`rna_inputs/<project>/` → הרצת ה‑workflow.
+
+### ב. מודל — גנום ב‑Ensembl או פרוטאום ב‑UniProt
+
+לא צריך KAAS/Trinotate — מורידים GO ישירות. שני מודולים, אותם קבצי פלט (`GO2gene_{BP,MF,CC}.tab` + `GO2name_…`, מורחבים היררכית → נכנסים לאותו `annotation_dir`):
+
+- **Ensembl / BioMart** (`prepare_ensembl.py`) — לפי Ensembl gene ID. דורש `pip install pybiomart`. רץ דרך בלוק `ensembl:` ב‑`config.yml` + `python scripts/run_all.py`. ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
+- **UniProt** (`prepare_uniprot.py`) — לפי `taxon_id` (Swiss-Prot/reviewed), ממופתח ל‑UniProt accessions. רץ דרך בלוק `uniprot:` + `run_all.py`.
+
+*(Ensembl/UniProt רצים כרגע דרך config בלבד — בלי CLI/workflow ייעודי כמו RNA/KEGG.)*
+
+### התאמת רמת ה‑ID (חוזר בכל מסלול)
+
+מזהי Trinity: `TRINITY_DN1000_c0_g1` (גֵן) מול `..._g1_i1` (טרנסקריפט). הדגל `strip_isoform` (ברירת מחדל: מסיר `_iN`) מיישר לרמת גֵן. תמיד מרימים את קבצי האנוטציה לאותה רמה כמו ה‑counts — אחרת אזהרת ה‑<5% חפיפה.
+
+---
+
 **קישורים:** [multiomics-annotation-prep](https://github.com/multiomics-center-Israel/multiomics-annotation-prep) (בנאי) · [multiomic-core](https://github.com/multiomics-center-israel/multiomics-core) (פייפליין) · חוזה הפורמט: `MODEL_CONTRACT.md`

@@ -9,6 +9,38 @@ from .download_kegg_org import prepare_kegg_by_org
 from .utils import log_msg, write_go2gene, write_go2name, write_tab
 
 
+# pybiomart keys ``server.marts`` by the mart's internal name (e.g.
+# "ENSEMBL_MART_ENSEMBL"), NOT "ensembl". Accept friendly aliases + a
+# case-insensitive match on name/display_name so values like "ensembl" or
+# "plants" work regardless of the exact internal key.
+_MART_ALIASES = {
+    "ensembl": "ENSEMBL_MART_ENSEMBL",
+    "plants": "plants_mart",
+    "protists": "protists_mart",
+    "fungi": "fungi_mart",
+    "metazoa": "metazoa_mart",
+}
+
+
+def _resolve_mart(marts, mart):
+    """Resolve a mart name tolerantly against pybiomart's ``server.marts``."""
+    if mart in marts:
+        return marts[mart]
+    alias = _MART_ALIASES.get(mart.lower())
+    if alias and alias in marts:
+        return marts[alias]
+    low = mart.lower()
+    for m in marts.values():
+        names = {getattr(m, "name", "").lower(),
+                 (getattr(m, "display_name", "") or "").lower()}
+        if low in names:
+            return m
+    raise ValueError(
+        f"BioMart mart {mart!r} not found. Available: {', '.join(marts)}. "
+        f"For a non-vertebrate genome set --host to the right division "
+        f"(e.g. https://plants.ensembl.org with --mart plants_mart).")
+
+
 def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
                     kegg_org=None, id_source="ensembl", expand=True,
                     refresh=False):
@@ -20,12 +52,19 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
             "Install with: pip install pybiomart"
         )
 
-    log_msg("Connecting to BioMart: dataset=", dataset)
-    if host:
-        server = pybiomart.Server(host=host)
-    else:
-        server = pybiomart.Server(host="http://www.ensembl.org")
-    ds = server.marts[mart].datasets[dataset]
+    log_msg("Connecting to BioMart: dataset=", dataset, " mart=", mart,
+            " host=", host or "www.ensembl.org")
+    server = pybiomart.Server(host=host or "http://www.ensembl.org")
+
+    mart_obj = _resolve_mart(server.marts, mart)
+    datasets = mart_obj.datasets
+    if dataset not in datasets:
+        raise ValueError(
+            f"BioMart dataset {dataset!r} not found in mart {mart_obj.name!r}. "
+            f"For a non-vertebrate genome point --host at the right division "
+            f"(e.g. https://plants.ensembl.org with --mart plants_mart). "
+            f"Available datasets start with: {', '.join(list(datasets)[:6])} ...")
+    ds = datasets[dataset]
 
     log_msg("Fetching gene annotations...")
     annot = ds.query(attributes=[

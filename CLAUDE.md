@@ -71,9 +71,17 @@ scripts/
   run_go.py                # CLI wrapper
   run_mummichog_model.py   # CLI wrapper for the mummichog model
   run_kegg_compound_sets.py # CLI wrapper for the compound-set GMT + table
+  run_ensembl.py           # CLI for the Ensembl/BioMart module (model organisms)
+  run_uniprot.py           # CLI for the UniProt module (by taxon id)
   run_all.py               # config-driven driver (reads config/config.yml)
+.github/workflows/         # workflow_dispatch pipelines: build on a runner + publish a dated GitHub Release
+  publish-organism-artifacts.yml # KEGG code -> mummichog model + compound-set GMT (compound-based)
+  build-rna-annotation.yml       # rna_inputs/<project>/ (KAAS+Trinotate) -> annotation_dir tables (gene-based)
+  build-model-annotation.yml     # Ensembl/UniProt -> annotation_dir tables (gene-based, model organisms)
+rna_inputs/                # committed KAAS/Trinotate inputs per project, read by build-rna-annotation.yml
 config/config.yml          # which modules run + their inputs
 requirements-mummichog.txt # scoped, pinned optional deps for the mummichog model only
+docs/team-guide-he.md      # Hebrew operator guide (build / run / add-organism / input-prep)
 tests/                     # pytest: masses, KEGG parsers, model assembly, mummichog smoke, compound sets
 examples/                  # tiny inputs so the tool runs end-to-end
 data/                      # download cache (git-ignored)
@@ -104,6 +112,32 @@ model + these companions from a single `load_source` (one KEGG snapshot);
 companions are then listed in the model manifest's `companion_files`.
 `multiomic-core` loads the GMT as a plain data file (no sha256 pinning, unlike the
 model), so the sidecar manifest is provenance-only.
+
+**Two consumption paths (know which you're building for).** `multiomic-core`
+consumes two distinct kinds of artifact:
+
+1. **COMPOUND-based** metabolomics inputs — the mummichog model (`model_ref`:
+   URL+sha256, fetched+verified) and the compound-set GMT (`gmt_file`: a local
+   path). Universal per KEGG organism code; built + released by
+   `publish-organism-artifacts.yml`.
+2. **GENE-based** enrichment tables — `KEGG_pathway2gene.tab` +
+   `KEGG_pathway2name.tab` and `GO2gene_{BP,MF,CC}.tab` + `GO2name_{BP,MF,CC}.tab`,
+   read from a local directory `enrichment.annotation_dir` (multiomic-core v2 /
+   PR #128; the loader takes the first two columns, GO must be hierarchy-expanded).
+   These are keyed on the project's **gene IDs**, so they are NOT universal per
+   organism — they come from either a non-model transcriptome (KAAS +
+   Trinotate → `prepare_kegg_nonmodel` + `prepare_go`) or a model organism
+   (Ensembl/BioMart or UniProt → `prepare_ensembl` / `prepare_uniprot`, which
+   emit the same `GO2gene`/`GO2name` files, hierarchy-expanded, and KEGG tables
+   too when `kegg_org` is set).
+
+All three `workflow_dispatch` workflows publish dated, immutable Releases:
+`build-rna-annotation.yml` (transcriptome inputs from `rna_inputs/<project>/`) and
+`build-model-annotation.yml` (`source: ensembl|uniprot`) build the gene-based
+`annotation_dir` bundle; `run_ensembl.py` / `run_uniprot.py` are their local CLIs.
+The recurring gotcha for the gene-based path: the table gene IDs must match the
+RNA counts' `gene_id` (the pipeline warns on <5% overlap); `--no-strip-isoform`
+controls `_iN` collapsing.
 
 ## How to run
 
@@ -156,7 +190,11 @@ ensembl.org, rest.uniprot.org). Downloads are cached under `data/`; pass
 3. Descriptive-annotation file for the non-model GO path is not yet produced
    (only enrichment files) — add if the pipeline needs it.
 
-## Verification (no CI yet)
+## Verification (no test CI)
+
+The GitHub Actions here are **build-and-publish** `workflow_dispatch` pipelines
+(they release artifacts), NOT a test CI — nothing runs the suite automatically,
+so run it yourself.
 
 Offline: run the test suite. The parser / writer / compound-set tests need no
 network and no heavy deps; the model-assembly + mummichog-smoke tests skip

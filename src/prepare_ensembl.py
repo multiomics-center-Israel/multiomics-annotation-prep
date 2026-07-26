@@ -72,6 +72,20 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
             f"Available datasets start with: {', '.join(list(datasets)[:6])} ...")
     ds = datasets[dataset]
 
+    # Ensembl Genomes divisions (plants_mart, protists_mart, fungi_mart, ...)
+    # answer queries in a virtual schema named after the mart, NOT "default".
+    # pybiomart defaults the query's virtualSchemaName to "default", so BioMart
+    # replies "Dataset <x> NOT FOUND". Force the dataset's schema to the mart
+    # name for any non-main division. (Best-effort: pybiomart stores it on the
+    # private _virtual_schema that Dataset.query reads.)
+    if mart_obj.name != "ENSEMBL_MART_ENSEMBL":
+        for _attr in ("_virtual_schema", "virtual_schema"):
+            if hasattr(ds, _attr):
+                try:
+                    setattr(ds, _attr, mart_obj.name)
+                except Exception:  # noqa: BLE001 - never fatal
+                    pass
+
     log_msg("Fetching gene annotations...")
     annot = ds.query(attributes=[
         "ensembl_gene_id", "external_gene_name", "gene_biotype", "description"

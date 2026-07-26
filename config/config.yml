@@ -20,11 +20,15 @@ modules:
     go_table: examples/trinotate_go.txt   # per-gene GO table (Trinotate style)
 
   # --- model organism with a genome in Ensembl ----------------------------
+  # Non-vertebrate genomes live in an Ensembl Genomes division, NOT the main
+  # server: set mart + host to that division. e.g. Arabidopsis (plants):
+  #   dataset: athaliana_eg_gene   mart: plants_mart   host: https://plants.ensembl.org
+  # ("ensembl" resolves to the main ENSEMBL_MART_ENSEMBL mart automatically.)
   ensembl:
     enabled: false
     dataset:  mmusculus_gene_ensembl
-    mart:     ensembl
-    host:     null                    # e.g. https://may2024.archive.ensembl.org
+    mart:     ensembl                 # ensembl | plants_mart | protists_mart | fungi_mart | metazoa_mart
+    host:     null                    # null = www.ensembl.org; e.g. https://plants.ensembl.org
     kegg_org: mmu                     # KEGG organism code (null to skip KEGG)
     id_source: ensembl                # id space for KEGG mapping
 

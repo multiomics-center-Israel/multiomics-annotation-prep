@@ -129,4 +129,22 @@ modes:
 
 ---
 
+## כמה מקום ה‑Releases תופסים?
+
+מעט מאוד. כל אורגניזם תופס **~0.7 MB**, ושלושת הייחוסים הנוכחיים יחד ≈ **2.1 MB**.
+
+| קובץ | גודל טיפוסי |
+|------|-------------|
+| `.json` (מודל) | ~0.5 MB |
+| `.pathway2compound.tab` | ~0.16 MB |
+| `.compound_pathway.gmt` | ~21 KB |
+| `.manifest.json` | ~3.4 KB |
+| **סה"כ לאורגניזם** | **~0.7 MB** |
+
+- הרוב הוא ה‑`.json` (הוא מכיל את כל ה‑compounds/reactions/pathways); ה‑GMT זעיר.
+- כל **גרסה מתוארכת נוספת** מוסיפה עוד ~0.7 MB לאורגניזם (Release חדש, לא דריסה).
+- **לא נספר בגודל ה‑git** — Release assets נשמרים באחסון נפרד של GitHub עם מכסה נדיבה. אפשר לפרסם מאות גרסאות בלי להתקרב לגבול.
+
+---
+
 **קישורים:** [multiomics-annotation-prep](https://github.com/multiomics-center-Israel/multiomics-annotation-prep) (בנאי) · [multiomic-core](https://github.com/multiomics-center-israel/multiomics-core) (פייפליין) · חוזה הפורמט: `MODEL_CONTRACT.md`

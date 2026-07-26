@@ -180,6 +180,8 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 מריצים את שניהם עם אותו `--out`, מקבלים את 8 הקבצים בתיקייה אחת, ומכוונים אליה את `annotation_dir`.
 
+**אוטומטי (workflow):** אפשר גם דרך GitHub Actions — **Build RNA annotation tables**. מעלים את `query.ko.txt` ו/או `trinotate_go.txt` ל‑`rna_inputs/<project>/` (Add file → Upload files), מריצים את ה‑workflow עם שם הפרויקט, ומקבלים Release `rna_annot_<project>_<date>` עם קבצי ה‑annotation (+ zip). מורידים, פורסים לתיקייה, ומכוונים אליה את `annotation_dir`. (הדגל `strip_isoform` שם — כמו הגוצ'ה למטה.)
+
 > ⚠️ **מזהי הגנים חייבים להתאים ל‑counts.** ה‑loader (`R/core/09_enrichment.R`) בודק חפיפה בין הגנים בטבלאות למזהי הגנים במטריצת ה‑counts, ומזהיר אם החפיפה <5% (*"Check that gene ID types match"*). לכן הטבלאות נבנות מ‑KAAS + Trinotate של **אותו** פרויקט — כדי שמרחב ה‑IDs יהיה זהה.
 
 **למה זה נתיב נפרד מהמטבולומיקה:**

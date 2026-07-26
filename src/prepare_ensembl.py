@@ -52,8 +52,14 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
             "Install with: pip install pybiomart"
         )
 
+    # pybiomart's Server talks HTTP on port 80; an ``https://`` host makes it
+    # build a malformed URL (it ends up treating "https" as the hostname ->
+    # "Failed to resolve 'https'"). Normalize to http:// -- BioMart martservice
+    # is served over http, matching the default www.ensembl.org host.
+    if host and host.startswith("https://"):
+        host = "http://" + host[len("https://"):]
     log_msg("Connecting to BioMart: dataset=", dataset, " mart=", mart,
-            " host=", host or "www.ensembl.org")
+            " host=", host or "http://www.ensembl.org")
     server = pybiomart.Server(host=host or "http://www.ensembl.org")
 
     mart_obj = _resolve_mart(server.marts, mart)

@@ -147,4 +147,51 @@ modes:
 
 ---
 
+## RNA / GO enrichment — טבלאות מבוססות‑גנים (נתיב נפרד)
+
+ההעשרה של **RNA-seq** (GO + KEGG, ORA/GSEA) **לא** משתמשת ב‑Release עם URL+sha כמו המודל המטבולומי — היא קוראת **תיקייה מקומית** של טבלאות. הסיבה: הטבלאות ממופתחות לפי **מזהי הגנים של הטרנסקריפטום**, לא לפי compound IDs אוניברסליים.
+
+**מה ה‑config מצפה** (תחת `modes.rna.enrichment`):
+
+```yaml
+enrichment:
+  enabled: true
+  annotation_dir: "data/Func_annot_data_expanded"   # תיקייה מקומית עם הקבצים למטה
+  databases: ["KEGG", "GO_BP", "GO_MF", "GO_CC"]     # מה שחסר — מדולג עם warning
+```
+
+עד 8 קבצי `.tab` (שתי עמודות; ה‑loader לוקח את שתי העמודות הראשונות, שורת ה‑header לא משנה):
+
+| database | TERM2GENE | TERM2NAME |
+|----------|-----------|-----------|
+| KEGG | `KEGG_pathway2gene.tab` | `KEGG_pathway2name.tab` |
+| GO_BP | `GO2gene_BP.tab` | `GO2name_BP.tab` |
+| GO_MF | `GO2gene_MF.tab` | `GO2name_MF.tab` |
+| GO_CC | `GO2gene_CC.tab` | `GO2name_CC.tab` |
+
+**`annotation-prep` כבר מייצר בדיוק את זה** — אין צורך בקוד חדש:
+
+```bash
+# שתי טבלאות ה-KEGG (מ-KAAS)
+python scripts/run_kegg_nonmodel.py --kaas <query.ko.txt> --out annot_dir --cache data
+# שש טבלאות ה-GO (מ-Trinotate), עם הרחבת היררכיה — "pre-expanded"
+python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache data
+```
+
+מריצים את שניהם עם אותו `--out`, מקבלים את 8 הקבצים בתיקייה אחת, ומכוונים אליה את `annotation_dir`.
+
+> ⚠️ **מזהי הגנים חייבים להתאים ל‑counts.** ה‑loader (`R/core/09_enrichment.R`) בודק חפיפה בין הגנים בטבלאות למזהי הגנים במטריצת ה‑counts, ומזהיר אם החפיפה <5% (*"Check that gene ID types match"*). לכן הטבלאות נבנות מ‑KAAS + Trinotate של **אותו** פרויקט — כדי שמרחב ה‑IDs יהיה זהה.
+
+**למה זה נתיב נפרד מהמטבולומיקה:**
+
+| | מטבולומיקה (model / GMT) | RNA (GO / KEGG) |
+|---|---|---|
+| מפתח | compound IDs (KEGG) | gene IDs (טרנסקריפטום) |
+| מקור | קוד אורגניזם KEGG | KAAS + Trinotate של הפרויקט |
+| הפצה | Release מתוארך (URL+sha) | תיקייה מקומית לפרויקט |
+
+*(מבוסס על PR #128 ב‑`multiomic-core`, `feature/enrichment-migration-v2`.)*
+
+---
+
 **קישורים:** [multiomics-annotation-prep](https://github.com/multiomics-center-Israel/multiomics-annotation-prep) (בנאי) · [multiomic-core](https://github.com/multiomics-center-israel/multiomics-core) (פייפליין) · חוזה הפורמט: `MODEL_CONTRACT.md`

@@ -129,7 +129,15 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
                       os.path.join(out_dir, f"GO2name_{ns}.tab"))
 
     if kegg_org:
-        prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh, id_source)
+        # The KEGG companion is optional and additive; a failure here (e.g.
+        # KEGG's conv DB has no 'ensembl' mapping for this organism -> HTTP 400)
+        # must NOT discard the GO tables already written above.
+        try:
+            prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh, id_source)
+        except Exception as exc:  # noqa: BLE001 - KEGG tables are optional
+            log_msg("KEGG mapping for ", kegg_org, " (id_source=", id_source,
+                    ") failed; skipping KEGG tables, GO tables are unaffected: ",
+                    exc)
 
 
 def _expand_go(pairs, parents, terms):

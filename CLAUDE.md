@@ -184,9 +184,11 @@ ensembl.org, rest.uniprot.org). Downloads are cached under `data/`; pass
   `link/ko/<org>` (gene→KO) intersected with `link/reaction/ko` (KO→reaction,
   KEGG-wide). The KAAS path supplies the same KO list from a file. Do not
   "restore" a direct gene→reaction lookup.
-- GO hierarchy expansion uses the `is_a` relationships from `go-basic.obo` to build
-  a transitive ancestor closure — every direct annotation propagates to all parent
-  terms.
+- GO hierarchy expansion uses the `is_a` **and** `relationship: part_of` edges from
+  `go-basic.obo` to build a transitive ancestor closure — every direct annotation
+  propagates to all parent terms. This matches clusterProfiler::buildGOmap (GO.db's
+  GO{BP,MF,CC}ANCESTOR tables = is_a + part_of), which the original Neat_Annotation
+  used. `regulates`/`has_part` are intentionally NOT ancestors — don't add them.
 - Trinotate GO strings carry `^namespace^description` suffixes and mixed
   separators; the parser extracts `GO:\d{7}` tokens by regex — keep that robust.
 

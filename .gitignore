@@ -8,3 +8,9 @@ results/*
 __pycache__/
 *.pyc
 *.pyo
+
+# stale pybiomart request cache (no longer used)
+.pybiomart.sqlite
+
+# cache written when running from the scripts/ directory
+scripts/data/

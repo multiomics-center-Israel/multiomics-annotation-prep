@@ -35,6 +35,54 @@ def cached_download(url, dest, cache_dir, refresh=False):
     return local
 
 
+def cached_post(url, data, dest, cache_dir, refresh=False):
+    """POST *data* to *url*, caching the response at <cache_dir>/<dest>."""
+    ensure_dir(cache_dir)
+    local = os.path.join(cache_dir, dest)
+    if os.path.exists(local) and not refresh:
+        log_msg("cache hit: ", dest)
+        return local
+    log_msg("posting: ", url)
+    import requests
+
+    resp = requests.post(url, data=data, timeout=600)
+    resp.raise_for_status()
+    with open(local, "wb") as f:
+        f.write(resp.content)
+    if os.path.getsize(local) == 0:
+        raise RuntimeError(f"Downloaded file is empty: {url}")
+    return local
+
+
+def cached_download_filtered(url, dest, cache_dir, keep, refresh=False):
+    """Stream *url* line by line, caching only the lines for which keep() is True.
+
+    For very large all-species reference files (e.g. Reactome's 500 MB mapping)
+    this keeps the on-disk cache to the subset actually used.
+    """
+    ensure_dir(cache_dir)
+    local = os.path.join(cache_dir, dest)
+    if os.path.exists(local) and not refresh:
+        log_msg("cache hit: ", dest)
+        return local
+    log_msg("downloading (streaming): ", url)
+    import requests
+
+    kept = 0
+    with requests.get(url, stream=True, timeout=1800) as resp:
+        resp.raise_for_status()
+        with open(local, "w", encoding="utf-8") as f:
+            for raw in resp.iter_lines(decode_unicode=True):
+                if raw and keep(raw):
+                    f.write(raw + "\n")
+                    kept += 1
+    if kept == 0:
+        os.remove(local)
+        raise RuntimeError(f"No matching lines found in: {url}")
+    log_msg(f"cached {kept} matching lines to: {local}")
+    return local
+
+
 def write_tab(rows, columns, path):
     """Write rows (list of dicts or list of tuples) to a tab-delimited file."""
     ensure_dir(os.path.dirname(path))

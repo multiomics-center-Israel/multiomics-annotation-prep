@@ -77,6 +77,29 @@ def _fetch_ncbi_xref(ds):
     return {}
 
 
+def _query_go_pairs(ds, dataset):
+    """Query ``(ensembl_gene_id, go_id)`` from BioMart, with retry + shape guard.
+
+    The GO namespace (BP/MF/CC) is taken from the OBO downstream, NOT from
+    BioMart, so we do not request ``namespace_1003``. Fewer attributes = a more
+    robust query: BioMart returns a single-column error frame when any requested
+    attribute is unavailable for a dataset/release, which previously crashed the
+    column rename with a cryptic pandas length mismatch. Retry once (BioMart
+    hiccups are common) and fail with a clear message if the shape is still off.
+    """
+    last_shape = None
+    for _ in range(2):
+        df = ds.query(attributes=["ensembl_gene_id", "go_id"])
+        if df.shape[1] == 2:
+            df.columns = ["gene", "go_id"]
+            return df
+        last_shape = df.shape
+    raise RuntimeError(
+        f"BioMart GO query for dataset {dataset!r} returned an unexpected shape "
+        f"{last_shape} (expected 2 columns: ensembl_gene_id, go_id). BioMart "
+        f"usually does this when it returns an error page -- retry the run.")
+
+
 def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
                     kegg_org=None, id_source="ensembl", expand=True,
                     refresh=False):
@@ -133,11 +156,9 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
               os.path.join(out_dir, "Annotation.tab"))
 
     log_msg("Fetching GO annotations...")
-    go_df = ds.query(attributes=[
-        "ensembl_gene_id", "go_id", "namespace_1003"
-    ])
-    go_df.columns = ["gene", "go_id", "namespace"]
-    go_df = go_df[go_df["go_id"].str.len() > 0]
+    go_df = _query_go_pairs(ds, dataset)
+    go_df = go_df.dropna(subset=["go_id"])
+    go_df = go_df[go_df["go_id"].astype(str).str.len() > 0]
 
     pairs = list(zip(go_df["gene"], go_df["go_id"]))
     if expand:

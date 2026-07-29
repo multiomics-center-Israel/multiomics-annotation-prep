@@ -4,7 +4,8 @@
 Writes the same enrichment tables the pipeline reads from annotation_dir:
 GO2gene_{BP,MF,CC}.tab + GO2name_{BP,MF,CC}.tab (hierarchy-expanded), a
 descriptive Annotation.tab, and -- when --kegg-org is given -- the
-KEGG_pathway2gene/2name tables. Needs `pybiomart`.
+KEGG_pathway2gene/2name tables. Queries BioMart directly over REST (needs only
+`requests`).
 """
 
 import argparse

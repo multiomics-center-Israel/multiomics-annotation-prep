@@ -83,7 +83,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install requests pyyaml
-          if [ "$SOURCE" = "ensembl" ]; then pip install pybiomart; fi
+          # ensembl path now queries BioMart directly over REST -- no pybiomart
 
       - name: Validate inputs
         run: |

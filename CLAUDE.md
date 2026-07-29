@@ -60,7 +60,7 @@ src/
   prepare_kegg_nonmodel.py # KAAS query.ko.txt -> KEGG enrichment + annot files  [PRIMARY]
   download_go.py           # GO term names/namespaces (go-basic.obo parser + ancestor graph)
   prepare_go.py            # per-gene GO table -> expanded GO enrichment files    [PRIMARY]
-  prepare_ensembl.py       # pybiomart path (model organisms)                     [secondary]
+  prepare_ensembl.py       # BioMart REST path (model organisms)                  [secondary]
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
   masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
   kegg_entities.py         # KEGG source loading (load_source: KO->reactions->compounds->pathways); shared, light
@@ -160,8 +160,9 @@ ensembl.org, rest.uniprot.org). Downloads are cached under `data/`; pass
 - **All output writing goes through the `write_*` helpers** in `src/utils.py`. Keep
   the output format decisions there, not scattered across modules.
 - **Logging** via `log_msg()` (timestamped to stderr). Avoid bare `print`.
-- Use only stdlib + `requests` + `pyyaml`; the Ensembl module optionally needs
-  `pybiomart`. Avoid adding heavy new deps without reason.
+- Use only stdlib + `requests` + `pyyaml` (the Ensembl module queries BioMart
+  directly over REST — no `pybiomart`/`pandas`). Avoid adding heavy new deps
+  without reason.
 
 ## Gotchas / things to verify when editing
 

@@ -2,7 +2,9 @@
 
 import os
 import re
+import time
 from collections import defaultdict
+from xml.etree.ElementTree import ParseError
 
 from .download_go import go_term_table, build_ancestor_cache, get_ancestors
 from .download_kegg_org import kegg_to_ensembl_map, prepare_kegg_by_org
@@ -77,6 +79,31 @@ def _fetch_ncbi_xref(ds):
     return {}
 
 
+def _biomart_with_retry(fn, what, attempts=3):
+    """Call *fn* with retries for transient BioMart failures.
+
+    Ensembl's martservice intermittently returns an HTML error page instead of
+    XML (surfaces as an ``ElementTree.ParseError``) or drops the connection.
+    Retry a few times with a short backoff, then fail with a clear, actionable
+    message rather than a cryptic traceback.
+    """
+    import requests  # lazy, matches the repo's requests-on-demand style
+    last = None
+    for i in range(attempts):
+        try:
+            return fn()
+        except (ParseError, requests.exceptions.RequestException) as exc:  # noqa: BLE001
+            last = exc
+            log_msg("BioMart ", what, " failed (attempt ", i + 1, "/", attempts,
+                    "): ", exc)
+            if i < attempts - 1:
+                time.sleep(3 * (i + 1))
+    raise RuntimeError(
+        f"BioMart {what} failed after {attempts} attempts ({last!r}). Ensembl's "
+        f"martservice most likely returned an HTML error page instead of XML -- "
+        f"a transient outage. Re-run the workflow in a few minutes.")
+
+
 def _query_go_pairs(ds, dataset):
     """Query ``(ensembl_gene_id, go_id)`` from BioMart, with retry + shape guard.
 
@@ -84,20 +111,20 @@ def _query_go_pairs(ds, dataset):
     BioMart, so we do not request ``namespace_1003``. Fewer attributes = a more
     robust query: BioMart returns a single-column error frame when any requested
     attribute is unavailable for a dataset/release, which previously crashed the
-    column rename with a cryptic pandas length mismatch. Retry once (BioMart
-    hiccups are common) and fail with a clear message if the shape is still off.
+    column rename with a cryptic pandas length mismatch. A wrong shape is treated
+    as a transient failure and retried alongside XML-parse/network errors.
     """
-    last_shape = None
-    for _ in range(2):
+    def _q():
         df = ds.query(attributes=["ensembl_gene_id", "go_id"])
-        if df.shape[1] == 2:
-            df.columns = ["gene", "go_id"]
-            return df
-        last_shape = df.shape
-    raise RuntimeError(
-        f"BioMart GO query for dataset {dataset!r} returned an unexpected shape "
-        f"{last_shape} (expected 2 columns: ensembl_gene_id, go_id). BioMart "
-        f"usually does this when it returns an error page -- retry the run.")
+        if df.shape[1] != 2:
+            # Treat as transient so _biomart_with_retry re-queries.
+            raise ParseError(
+                f"GO query returned {df.shape[1]} column(s), expected 2")
+        return df
+
+    df = _biomart_with_retry(_q, f"GO query for dataset {dataset!r}")
+    df.columns = ["gene", "go_id"]
+    return df
 
 
 def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
@@ -121,8 +148,13 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
             " host=", host or "http://www.ensembl.org")
     server = pybiomart.Server(host=host or "http://www.ensembl.org")
 
-    mart_obj = _resolve_mart(server.marts, mart)
-    datasets = mart_obj.datasets
+    # server.marts / mart.datasets each hit BioMart and parse XML; retry the
+    # registry + dataset-list fetches so a transient Ensembl hiccup doesn't
+    # crash the run with a cryptic ElementTree ParseError.
+    marts = _biomart_with_retry(lambda: server.marts, "mart registry fetch")
+    mart_obj = _resolve_mart(marts, mart)
+    datasets = _biomart_with_retry(lambda: mart_obj.datasets,
+                                   "dataset list fetch")
     if dataset not in datasets:
         raise ValueError(
             f"BioMart dataset {dataset!r} not found in mart {mart_obj.name!r}. "
@@ -146,9 +178,9 @@ def prepare_ensembl(dataset, out_dir, cache_dir, mart="ensembl", host=None,
                     pass
 
     log_msg("Fetching gene annotations...")
-    annot = ds.query(attributes=[
+    annot = _biomart_with_retry(lambda: ds.query(attributes=[
         "ensembl_gene_id", "external_gene_name", "gene_biotype", "description"
-    ])
+    ]), "gene-annotation query")
     annot.columns = ["Gene", "gene_name", "gene_biotype", "description"]
     annot_rows = [tuple(r) for r in annot.values]
     ensembl_ids = {str(r[0]) for r in annot_rows}

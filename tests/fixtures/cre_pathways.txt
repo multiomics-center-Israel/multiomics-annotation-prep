@@ -1,0 +1,5 @@
+cre00010	Glycolysis / Gluconeogenesis - Chlamydomonas reinhardtii (Chlamydomonas)
+cre00020	Citrate cycle (TCA cycle) - Chlamydomonas reinhardtii (Chlamydomonas)
+cre00230	Purine metabolism - Chlamydomonas reinhardtii (Chlamydomonas)
+cre01100	Metabolic pathways - Chlamydomonas reinhardtii (Chlamydomonas)
+cre01200	Carbon metabolism - Chlamydomonas reinhardtii (Chlamydomonas)

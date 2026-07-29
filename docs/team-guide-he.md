@@ -1,0 +1,231 @@
+# מדריך צוות — בניית ייחוס לאורגניזם והרצת הפייפליין
+
+> מדריך תפעולי בעברית: מה הריפו עושה, מה מריצים, ואיך מוסיפים אורגניזם חדש מקצה לקצה.
+>
+> **בנאי:** `multiomics-annotation-prep` · **פייפליין:** `multiomic-core` · **מקור נתונים:** KEGG REST
+
+---
+
+## התמונה הגדולה
+
+שני ריפוזיטוריז עובדים יחד. אחד **בונה** קבצי ייחוס לאורגניזם, והשני (הפייפליין) **צורך** אותם. הזרימה תמיד אותו דבר, והקבצים עצמם **לא** נשמרים בתוך ה‑git — הם artifacts שמתפרסמים כ‑GitHub Releases.
+
+```
+multiomics-annotation-prep  ──►  GitHub Releases  ──►  multiomic-core
+        (הבנאי)                     (המדף)                (הפייפליין)
+```
+
+| שלב | מה קורה |
+|-----|---------|
+| **הבנאי** (`multiomics-annotation-prep`) | מוריד מ‑KEGG ובונה, לכל אורגניזם: מודל מטבולי (`.json`) עבור mummichog, GMT של קבוצות תרכובות להעשרה מבוססת‑ID, טבלה קריאה, ו‑`manifest` עם sha256. |
+| **המדף** (GitHub Releases) | כל בנייה מתפרסמת כ‑Release מתוארך ובלתי‑משתנה. תג: `<code>_kegg_<date>` — 4 קבצים לכל אורגניזם. |
+| **הפייפליין** (`multiomic-core`) | צורך את המודל דרך `model_ref` (URL+sha256 — נשלף ומאומת אוטומטית), ואת ה‑GMT דרך `gmt_file` (קובץ מקומי). |
+
+**למה שני פורמטים לאותו אורגניזם?** המטבולומיקה רצה בשתי דרכים: מבוססת‑**m/z** (mummichog, עם המודל `.json`) ומבוססת‑**ID** (ORA/GSEA/QEA, עם ה‑GMT). שניהם נבנים מאותו מקור KEGG — אז אותם מסלולים ואותה ביולוגיה.
+
+---
+
+## מה זה sha256?
+
+`sha256` הוא **"טביעת אצבע" דיגיטלית של קובץ** — מחרוזת של 64 תווי hex שמחושבת מהתוכן:
+
+- **ייחודי לתוכן** — שינוי של בית אחד → sha256 שונה לגמרי.
+- **חד‑כיווני** — אי אפשר לשחזר את הקובץ מה‑sha.
+- **דטרמיניסטי** — אותו קובץ נותן תמיד אותו sha, בכל מחשב.
+
+**למה זה נחוץ:** ב‑`model_ref` יש `url` (מאיפה להוריד) ו‑`sha256` (בדיוק איזה קובץ מצפים לקבל). כשהפייפליין מוריד את ה‑`.json`, הוא מחשב מחדש את ה‑sha256 ומשווה: תואם → זה הקובץ הנכון; לא תואם → נעצר בקול רם במקום להריץ מודל שגוי. זה מה שהופך את העבודה ל‑reproducible.
+
+> GitHub מציג את זה כ‑`sha256:abc…`. התחילית `sha256:` היא רק שם האלגוריתם — בקונפיג מכניסים **רק את 64 ה‑hex** (ראו מלכודת 1).
+
+---
+
+## מה מריצים
+
+### א. בניית קבצים לאורגניזם — דרך ה‑Workflow (מומלץ)
+
+אין צורך במחשב מקומי או בהתקנות. הבנייה רצה על שרתי GitHub שיש להם גישת רשת ל‑KEGG והרשאה לפרסם Releases.
+
+1. בריפו **multiomics-annotation-prep** → לשונית **Actions** → **Build & publish organism artifacts** → **Run workflow**.
+2. ממלאים:
+   - `organisms` — קודי KEGG מופרדים בפסיק (למשל `cre,cvr,mng`)
+   - `target_organism` — ברירת מחדל `Coelastrella sp.`
+   - `date` — ריק = היום (UTC)
+3. התוצאה: Release לכל אורגניזם עם 4 הקבצים, אחרי אימות אוטומטי (mummichog smoke + בדיקת מסות).
+
+### ב. בנייה מקומית (חלופה — לפיתוח/דיבוג)
+
+דורש מחשב עם גישת רשת ל‑`rest.kegg.jp`.
+
+```bash
+# התקנה חד-פעמית
+git clone https://github.com/multiomics-center-Israel/multiomics-annotation-prep
+cd multiomics-annotation-prep
+python -m venv .venv && source .venv/bin/activate
+pip install requests pyyaml
+pip install -r requirements-mummichog.txt
+
+# בנייה: מודל + GMT יחד, לאורגניזם אחד
+python scripts/run_mummichog_model.py --kegg-code cre \
+  --model-organism "Chlamydomonas reinhardtii" \
+  --target-organism "Coelastrella sp." \
+  --emit-compound-sets --validate --out results --cache data
+```
+
+### ג. הרצת הפייפליין (multiomic-core)
+
+בקונפיג המטבולומי, תחת `enrichment`, מצביעים על המודל וה‑GMT ומריצים כרגיל.
+
+```yaml
+modes:
+  metabolomics:
+    enrichment:
+      run_enrichment: true
+      gmt_file: "metabolomics/cre_kegg_20260723.compound_pathway.gmt"  # קובץ מקומי
+      mummichog:
+        enabled: true
+        ionization_mode: positive        # positive | negative
+        model_ref:
+          url:    "https://github.com/.../releases/download/cre_kegg_20260723/cre_kegg_20260723.json"
+          sha256: "344851a4…ed68"        # 64 hex נטו, בלי sha256:
+```
+
+---
+
+## איך מוסיפים אורגניזם חדש
+
+התהליך המלא, מקוד KEGG ועד ריצה בפייפליין — חמישה שלבים:
+
+1. **מצא את קוד ה‑KEGG.** ב‑[genome.jp/kegg](https://www.genome.jp/kegg/) — קוד בן 3–4 אותיות (למשל `cre` = Chlamydomonas reinhardtii). ודא שלאורגניזם יש גנום ב‑KEGG. אם אין — בוחרים אורגניזם קרוב כ‑surrogate.
+2. **הרץ את ה‑Workflow.** Actions → **Run workflow**: `organisms=<code>`, `target_organism` לפי הצורך, `date` ריק. לשם מלא בתיעוד, אפשר להוסיף את הקוד למַפָּה שבתוך `publish-organism-artifacts.yml` (`NAMES`); אחרת ייבנה עם שם ריק — עדיין תקין.
+3. **המתן לסיום (~5 דק').** נוצר Release `<code>_kegg_<date>` עם 4 קבצים. ריצה כושלת נעצרת עם הודעה ברורה; אותו תאריך שכבר קיים ייכשל בכוונה (artifacts הם immutable).
+4. **אסוף sha256 והורד את ה‑GMT.** ב‑Release, ה‑`digest` של קובץ ה‑`.json` הוא ה‑sha256 של המודל. הורד את קובץ ה‑`.compound_pathway.gmt` למקום מקומי (הפייפליין לא מוריד GMT מ‑URL).
+5. **חבר בקונפיג של הפייפליין והרץ.** `model_ref` = ה‑URL של ה‑`.json` + ה‑sha256 (נקי), ו‑`gmt_file` = הנתיב המקומי של ה‑GMT. מודל ו‑GMT — מאותו קוד אורגניזם. הרץ.
+
+---
+
+## מלכודות נפוצות
+
+חמש טעויות שקל ליפול בהן — שווה לעבור עליהן לפני ריצה:
+
+1. **ה‑sha256 — 64 hex נטו, בלי `sha256:`.** ה‑`digest` ב‑GitHub מוצג כ‑`sha256:abc…`. מעתיקים רק את ה‑hex. אחרת: `must be a 64-character hex sha256 digest`.
+2. **`gmt_file` הוא נתיב מקומי — לא URL.** המודל נשלף אוטומטית מ‑URL; ה‑GMT לא. מורידים את הקובץ ומצביעים עליו בנתיב מקומי (מוחלט או יחסי לפרויקט).
+3. **מודל ו‑GMT מאותו אורגניזם.** באותה ריצה, `model_ref` ו‑`gmt_file` צריכים להיות מאותו קוד — אחרת ההעשרה מבוססת‑m/z ומבוססת‑ID מדברות על ביולוגיות שונות.
+4. **`ionization_mode`: `positive` או `negative` בלבד.** ערך לא מוכר (כמו `mixed`) נבלע בשקט ל‑`positive` — בלי שגיאה, אבל בפולריות שאולי לא התכוונת אליה. mummichog מריץ פולריות אחת בכל ריצה.
+5. **עדכון = תאריך חדש, לא דריסה.** ה‑artifacts הם immutable. כדי לרענן (עדכון KEGG / תיקון) מריצים את ה‑workflow עם `date` חדש — נוצר Release חדש, הישן נשאר.
+
+---
+
+## הייחוסים הנוכחיים
+
+שלוש אצות ירוקות שנבנו כ‑surrogates ל‑**Coelastrella sp.** (תג `<code>_kegg_20260723`). הספירות: compounds / reactions / pathways במודל, ו‑pathways / compounds ב‑GMT.
+
+| אורגניזם | קוד | מודל (cpd/rxn/path) | GMT (path/cpd) | sha256 של המודל (`.json`) |
+|----------|-----|---------------------|----------------|---------------------------|
+| Chlamydomonas reinhardtii | `cre` | 1111 / 1322 / 80 | 81 / 1170 | `344851a45d310d4e6712bcea10a0a3fa5d7c31ed82ad19a8a98d1ac2e3ebed68` |
+| Chlorella variabilis | `cvr` | 1150 / 1379 / 82 | 84 / 1229 | `7d298afa195b53a0ecce853c15401278b43ad4a4392e2dbb7d3fba13a882480f` |
+| Monoraphidium neglectum | `mng` | 1057 / 1152 / 81 | 83 / 1139 | `182d524e38808ff44e327c5f4ebb2a15378471e09337fb29f0a99f21a2e96c8c` |
+
+דפוס ה‑URL: `…/releases/download/<tag>/<tag>.json` (מודל) ו‑`…/<tag>.compound_pathway.gmt` (GMT). ה‑sha256 של ה‑GMT זמין ב‑`digest` של ה‑Release (לאימות ידני אחרי הורדה).
+
+---
+
+## כמה מקום ה‑Releases תופסים?
+
+מעט מאוד. כל אורגניזם תופס **~0.7 MB**, ושלושת הייחוסים הנוכחיים יחד ≈ **2.1 MB**.
+
+| קובץ | גודל טיפוסי |
+|------|-------------|
+| `.json` (מודל) | ~0.5 MB |
+| `.pathway2compound.tab` | ~0.16 MB |
+| `.compound_pathway.gmt` | ~21 KB |
+| `.manifest.json` | ~3.4 KB |
+| **סה"כ לאורגניזם** | **~0.7 MB** |
+
+- הרוב הוא ה‑`.json` (הוא מכיל את כל ה‑compounds/reactions/pathways); ה‑GMT זעיר.
+- כל **גרסה מתוארכת נוספת** מוסיפה עוד ~0.7 MB לאורגניזם (Release חדש, לא דריסה).
+- **לא נספר בגודל ה‑git** — Release assets נשמרים באחסון נפרד של GitHub עם מכסה נדיבה. אפשר לפרסם מאות גרסאות בלי להתקרב לגבול.
+
+---
+
+## RNA / GO enrichment — טבלאות מבוססות‑גנים (נתיב נפרד)
+
+ההעשרה של **RNA-seq** (GO + KEGG, ORA/GSEA) **לא** משתמשת ב‑Release עם URL+sha כמו המודל המטבולומי — היא קוראת **תיקייה מקומית** של טבלאות. הסיבה: הטבלאות ממופתחות לפי **מזהי הגנים של הטרנסקריפטום**, לא לפי compound IDs אוניברסליים.
+
+**מה ה‑config מצפה** (תחת `modes.rna.enrichment`):
+
+```yaml
+enrichment:
+  enabled: true
+  annotation_dir: "data/Func_annot_data_expanded"   # תיקייה מקומית עם הקבצים למטה
+  databases: ["KEGG", "GO_BP", "GO_MF", "GO_CC"]     # מה שחסר — מדולג עם warning
+```
+
+עד 8 קבצי `.tab` (שתי עמודות; ה‑loader לוקח את שתי העמודות הראשונות, שורת ה‑header לא משנה):
+
+| database | TERM2GENE | TERM2NAME |
+|----------|-----------|-----------|
+| KEGG | `KEGG_pathway2gene.tab` | `KEGG_pathway2name.tab` |
+| GO_BP | `GO2gene_BP.tab` | `GO2name_BP.tab` |
+| GO_MF | `GO2gene_MF.tab` | `GO2name_MF.tab` |
+| GO_CC | `GO2gene_CC.tab` | `GO2name_CC.tab` |
+
+**`annotation-prep` כבר מייצר בדיוק את זה** — אין צורך בקוד חדש:
+
+```bash
+# שתי טבלאות ה-KEGG (מ-KAAS)
+python scripts/run_kegg_nonmodel.py --kaas <query.ko.txt> --out annot_dir --cache data
+# שש טבלאות ה-GO (מ-Trinotate), עם הרחבת היררכיה — "pre-expanded"
+python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache data
+```
+
+מריצים את שניהם עם אותו `--out`, מקבלים את 8 הקבצים בתיקייה אחת, ומכוונים אליה את `annotation_dir`.
+
+**אוטומטי (workflow):** אפשר גם דרך GitHub Actions — **Build RNA annotation tables**. מעלים את `query.ko.txt` ו/או `trinotate_go.txt` ל‑`rna_inputs/<project>/` (Add file → Upload files), מריצים את ה‑workflow עם שם הפרויקט, ומקבלים Release `rna_annot_<project>_<date>` עם קבצי ה‑annotation (+ zip). מורידים, פורסים לתיקייה, ומכוונים אליה את `annotation_dir`. (הדגל `strip_isoform` שם — כמו הגוצ'ה למטה.)
+
+> ⚠️ **מזהי הגנים חייבים להתאים ל‑counts.** ה‑loader (`R/core/09_enrichment.R`) בודק חפיפה בין הגנים בטבלאות למזהי הגנים במטריצת ה‑counts, ומזהיר אם החפיפה <5% (*"Check that gene ID types match"*). לכן הטבלאות נבנות מ‑KAAS + Trinotate של **אותו** פרויקט — כדי שמרחב ה‑IDs יהיה זהה.
+
+**למה זה נתיב נפרד מהמטבולומיקה:**
+
+| | מטבולומיקה (model / GMT) | RNA (GO / KEGG) |
+|---|---|---|
+| מפתח | compound IDs (KEGG) | gene IDs (טרנסקריפטום) |
+| מקור | קוד אורגניזם KEGG | KAAS + Trinotate של הפרויקט |
+| הפצה | Release מתוארך (URL+sha) | תיקייה מקומית לפרויקט |
+
+*(מבוסס על PR #128 ב‑`multiomic-core`, `feature/enrichment-migration-v2`.)*
+
+---
+
+## נספח — הכנת הקלט לאנוטציה (KAAS / Trinotate / Ensembl / UniProt)
+
+השלב היחיד שהוא ידני, *לפני* הריפו: להשיג את קבצי הקלט. הבחירה תלויה אם יש גנום מוער או רק טרנסקריפטום. **החוט המקשר בכל המסלולים:** מזהי הגנים בקבצי האנוטציה חייבים להיות אותו מרחב IDs כמו עמודת `gene_id` ב‑counts.
+
+### א. לא‑מודל — טרנסקריפטום de novo
+
+**KAAS → `query.ko.txt` (KEGG).** [KEGG KAAS](https://www.genome.jp/kegg/kaas/) מקצה KO לרצפים.
+- קלט: FASTA, מומלץ **חלבונים** (ORFs מ‑TransDecoder).
+- בחירות: `GHOSTX` (מהיר); שיטת **SBH** לטרנסקריפטום (BBH לגנום שלם); רשימת אורגניזמים ייחוס קרובים (אצות/צמחים).
+- פלט: `gene ⇥ KO` — משנים שם ל‑`query.ko.txt`. לסטים גדולים: BlastKOALA/GhostKOALA.
+
+**Trinotate → `trinotate_go.txt` (GO).** [Trinotate](https://github.com/Trinotate/Trinotate) מאחד blastx/blastp מול Swiss-Prot, hmmscan מול Pfam ועוד.
+- פייפליין: Trinity → TransDecoder → חיפושי הומולוגיה → טעינה ל‑SQLite → `Trinotate --report`.
+- חילוץ GO: הסקריפט `extract_GO_assignments_from_Trinotate_xls.pl` נותן `gene ⇥ GO`. ה‑parser של `run_go.py` עמיד לפורמט Trinotate המלא (מחלץ `GO:\d{7}`).
+
+**סדר הפעולות:** Trinity → TransDecoder → (KAAS + Trinotate במקביל) → שני הקבצים → העלאה ל‑`rna_inputs/<project>/` → הרצת ה‑workflow.
+
+### ב. מודל — גנום ב‑Ensembl או פרוטאום ב‑UniProt
+
+לא צריך KAAS/Trinotate — מורידים GO ישירות. שני מודולים, אותם קבצי פלט (`GO2gene_{BP,MF,CC}.tab` + `GO2name_…`, מורחבים היררכית → נכנסים לאותו `annotation_dir`):
+
+- **Ensembl / BioMart** (`run_ensembl.py`) — לפי Ensembl gene ID. דורש `pybiomart`. ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
+- **UniProt** (`run_uniprot.py`) — לפי `taxon_id` (Swiss-Prot/reviewed), ממופתח ל‑UniProt accessions.
+
+**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot`, ממלאים `dataset` (Ensembl) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
+
+### התאמת רמת ה‑ID (חוזר בכל מסלול)
+
+מזהי Trinity: `TRINITY_DN1000_c0_g1` (גֵן) מול `..._g1_i1` (טרנסקריפט). הדגל `strip_isoform` (ברירת מחדל: מסיר `_iN`) מיישר לרמת גֵן. תמיד מרימים את קבצי האנוטציה לאותה רמה כמו ה‑counts — אחרת אזהרת ה‑<5% חפיפה.
+
+---
+
+**קישורים:** [multiomics-annotation-prep](https://github.com/multiomics-center-Israel/multiomics-annotation-prep) (בנאי) · [multiomic-core](https://github.com/multiomics-center-israel/multiomics-core) (פייפליין) · חוזה הפורמט: `MODEL_CONTRACT.md`

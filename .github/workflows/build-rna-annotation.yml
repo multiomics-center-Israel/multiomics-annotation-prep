@@ -1,0 +1,131 @@
+name: Build RNA annotation tables
+
+# Manually-dispatched pipeline that turns a project's KAAS + Trinotate inputs
+# into the gene-based enrichment tables the RNA pipeline reads
+# (multiomic-core enrichment.annotation_dir), and publishes them as a dated,
+# immutable GitHub Release.
+#
+# Unlike the compound-centric organism artifacts, these tables are GENE-ID based
+# and project-specific, so the workflow is fed the project's input files rather
+# than a KEGG organism code:
+#
+#   1. Upload the project's inputs to  rna_inputs/<project>/  (Add file ->
+#      Upload files on GitHub). Filenames must be exactly:
+#        query.ko.txt        (KAAS output; gene<TAB>KO)   -> builds the KEGG tables
+#        trinotate_go.txt    (Trinotate GO; gene<TAB>GO)  -> builds the GO tables
+#      Either or both may be present.
+#   2. Run this workflow with that <project> name.
+#
+# It builds on a GitHub-hosted runner (open internet -> rest.kegg.jp +
+# purl.obolibrary.org reachable) and publishes a Release tagged
+# rna_annot_<project>_<date> with the annotation_dir files + a convenience zip.
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Folder name under rna_inputs/ holding query.ko.txt and/or trinotate_go.txt"
+        type: string
+        required: true
+      date:
+        description: "Release date stamp YYYYMMDD (empty = today, UTC)"
+        type: string
+        default: ""
+      strip_isoform:
+        description: "Strip _iN isoform suffixes to gene level (match your RNA counts' gene IDs)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # required to create Releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT: ${{ inputs.project }}
+      IN_DATE: ${{ inputs.date }}
+      STRIP: ${{ inputs.strip_isoform }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests pyyaml
+
+      - name: Validate inputs
+        run: |
+          # project is used to build a path; restrict to safe characters.
+          if ! printf '%s' "$PROJECT" | grep -Eq '^[A-Za-z0-9_-]+$'; then
+            echo "::error::project must be letters/digits/underscore/hyphen only (got '$PROJECT')."
+            exit 1
+          fi
+          if [ -n "$IN_DATE" ] && ! printf '%s' "$IN_DATE" | grep -Eq '^[0-9]{8}$'; then
+            echo "::error::date must be YYYYMMDD (got '$IN_DATE')."
+            exit 1
+          fi
+          in_dir="rna_inputs/$PROJECT"
+          if [ ! -d "$in_dir" ]; then
+            echo "::error::Folder $in_dir not found. Upload query.ko.txt and/or trinotate_go.txt there first (Add file -> Upload files)."
+            exit 1
+          fi
+          if [ ! -f "$in_dir/query.ko.txt" ] && [ ! -f "$in_dir/trinotate_go.txt" ]; then
+            echo "::error::$in_dir has neither query.ko.txt nor trinotate_go.txt."
+            exit 1
+          fi
+
+      - name: Build annotation tables
+        run: |
+          in_dir="rna_inputs/$PROJECT"
+          out="annotation_out"
+          mkdir -p "$out"
+          extra=""
+          [ "$STRIP" = "false" ] && extra="--no-strip-isoform"
+
+          if [ -f "$in_dir/query.ko.txt" ]; then
+            python scripts/run_kegg_nonmodel.py --kaas "$in_dir/query.ko.txt" \
+              --out "$out" --cache data $extra
+          else
+            echo "::warning::no query.ko.txt in $in_dir -- skipping KEGG tables"
+          fi
+
+          if [ -f "$in_dir/trinotate_go.txt" ]; then
+            python scripts/run_go.py --go-table "$in_dir/trinotate_go.txt" \
+              --out "$out" --cache data
+          else
+            echo "::warning::no trinotate_go.txt in $in_dir -- skipping GO tables"
+          fi
+
+          echo "== built files =="
+          ls -la "$out"
+          # the RNA pipeline reads these .tab files from annotation_dir
+          echo "== annotation_dir .tab files =="
+          ls "$out"/*.tab
+
+      - name: Publish Release
+        run: |
+          date="$IN_DATE"
+          [ -z "$date" ] && date="$(date -u +%Y%m%d)"
+          tag="rna_annot_${PROJECT}_${date}"
+          out="annotation_out"
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists -- bump the date input (artifacts are immutable)."
+            exit 1
+          fi
+
+          zip="${tag}.zip"
+          ( cd "$out" && zip -r "../$zip" . )
+
+          gh release create "$tag" "$zip" "$out"/*.tab \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$tag" \
+            --notes "RNA enrichment annotation tables (annotation_dir) for project '${PROJECT}'.
+          Download ${zip} and unzip into your RNA project's annotation_dir, then point
+          modes.rna.enrichment.annotation_dir at that folder.
+          NOTE: these tables are gene-ID based -- they must match your counts' gene IDs."
+          echo "Published $tag"

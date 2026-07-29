@@ -20,13 +20,22 @@ modules:
     go_table: examples/trinotate_go.txt   # per-gene GO table (Trinotate style)
 
   # --- model organism with a genome in Ensembl ----------------------------
+  # Non-vertebrate genomes live in an Ensembl Genomes division, NOT the main
+  # server: set mart + host to that division. e.g. Arabidopsis (plants):
+  #   dataset: athaliana_eg_gene   mart: plants_mart   host: https://plants.ensembl.org
+  # ("ensembl" resolves to the main ENSEMBL_MART_ENSEMBL mart automatically.)
   ensembl:
     enabled: false
     dataset:  mmusculus_gene_ensembl
-    mart:     ensembl
-    host:     null                    # e.g. https://may2024.archive.ensembl.org
+    mart:     ensembl                 # ensembl | plants_mart | protists_mart | fungi_mart | metazoa_mart
+    host:     null                    # null = www.ensembl.org; e.g. https://plants.ensembl.org
     kegg_org: mmu                     # KEGG organism code (null to skip KEGG)
-    id_source: ensembl                # id space for KEGG mapping
+    id_source: ensembl                # id space for KEGG_pathway2gene.tab keys.
+                                      # 'ensembl' is bridged KEGG->ncbi-geneid->
+                                      # Ensembl (KEGG /conv has no ensembl DB);
+                                      # 'ncbi-geneid'|'ncbi-proteinid'|'uniprot'
+                                      # use KEGG /conv directly; 'kegg' keeps
+                                      # bare KEGG gene ids.
 
   # --- proteome in UniProt (proteomics) -----------------------------------
   uniprot:
@@ -34,3 +43,44 @@ modules:
     taxon_id: 10090
     reviewed: true                    # Swiss-Prot only
     kegg_org: mmu                     # null to skip KEGG
+
+  # --- mummichog metabolic model (compound-centric; for `mummichog -n`) ----
+  # NEW output type, independent of the gene-set modules above. Needs the
+  # scoped optional deps:  pip install -r requirements-mummichog.txt
+  mummichog_model:
+    enabled: false
+    source: kegg_org                  # kegg_org | kaas  (both: KO list -> reactions)
+    kegg_code: cre                    # KEGG organism code (KO list from link/ko/<code>)
+    model_organism: "Chlamydomonas reinhardtii"   # what the model IS
+    model_kegg_code: cre              # filename-stem label recorded for the model
+    target_organism: "Coelastrella sp."   # biology it stands in for (null if same)
+    source_version: null              # override; else auto-detected from KEGG
+    date: null                        # YYYYMMDD; else today (UTC)
+    validate: false                   # run `mummichog -n` smoke test (needs mummichog)
+    emit_compound_sets: false         # also write the ID-based compound-set GMT +
+                                      # table from the same load_source (same snapshot);
+                                      # recorded in the model manifest's companion_files
+    # For a non-model organism from a KAAS KO list instead of a KEGG code:
+    # source: kaas
+    # kaas: examples/query.ko.txt     # KAAS output (gene<TAB>KO)
+    # model_kegg_code: coel           # required label for the output filename
+
+  # --- KEGG compound sets (ID-based metabolomics enrichment; GMT + table) --
+  # Compound-centric, like the mummichog model but for ORA/GSEA/QEA over compound
+  # IDs (not m/z). Same organism source, same pathways -- broader compound coverage
+  # (no mass filter). Writes <stem>.compound_pathway.gmt + <stem>.pathway2compound.tab.
+  # Light deps only (requests + pyyaml). Or set mummichog_model.emit_compound_sets:
+  # true above to produce model + these companions in one run.
+  kegg_compound_sets:
+    enabled: false
+    source: kegg_org                  # kegg_org | kaas
+    kegg_code: cre                    # KEGG organism code (KO list from link/ko/<code>)
+    model_organism: "Chlamydomonas reinhardtii"   # species the sets describe
+    model_kegg_code: cre              # filename-stem label
+    target_organism: "Coelastrella sp."   # biology it stands in for (null if same)
+    source_version: null              # override; else auto-detected from KEGG
+    date: null                        # YYYYMMDD; else today (UTC)
+    # For a KAAS KO list instead of a KEGG code:
+    # source: kaas
+    # kaas: examples/query.ko.txt
+    # model_kegg_code: coel

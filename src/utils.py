@@ -1,7 +1,9 @@
 """Shared helpers: logging, caching, downloads, and output writers."""
 
 import csv
+import hashlib
 import os
+import subprocess
 import sys
 from datetime import datetime
 
@@ -83,6 +85,27 @@ def cached_download_filtered(url, dest, cache_dir, keep, refresh=False):
     return local
 
 
+def sha256_file(path):
+    """Return the hex sha256 of a file, read in 64 KiB chunks."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def git_head_sha():
+    """Return the repo's HEAD commit SHA, or None (best-effort provenance)."""
+    try:
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        out = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
+                             capture_output=True, text=True, timeout=10)
+        if out.returncode == 0:
+            return out.stdout.strip()
+    except Exception:  # noqa: BLE001 - provenance is best-effort
+        pass
+    return None
+  
 def write_tab(rows, columns, path):
     """Write rows (list of dicts or list of tuples) to a tab-delimited file."""
     ensure_dir(os.path.dirname(path))
@@ -107,6 +130,17 @@ def write_pathway2gene(path2gene_pairs, out_file):
 def write_pathway2name(path2name_pairs, out_file):
     """Write KEGG_pathway2name.tab  (columns: pathway, info)."""
     write_tab(path2name_pairs, ["pathway", "info"], out_file)
+
+
+def write_pathway2compound(rows, out_file):
+    """Write a readable pathway->compound table.
+
+    Columns: pathway_id, pathway_name, compound_id, compound_name. Rows are
+    sorted + de-duplicated for deterministic output (mirrors write_pathway2gene).
+    """
+    pairs = sorted(set(rows))
+    write_tab(pairs, ["pathway_id", "pathway_name", "compound_id",
+                      "compound_name"], out_file)
 
 
 def write_go2gene(go2gene_pairs, out_file):

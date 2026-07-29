@@ -24,7 +24,13 @@ def parse_obo(path):
     """Parse go-basic.obo -> (terms dict, parents dict).
 
     terms: go_id -> {name, namespace}
-    parents: go_id -> set of parent go_ids (is_a relationships)
+    parents: go_id -> set of parent go_ids
+
+    Parents include both ``is_a`` and ``relationship: part_of`` edges, matching
+    the propagation semantics of clusterProfiler::buildGOmap (which uses GO.db's
+    GO{BP,MF,CC}ANCESTOR tables, built from is_a + part_of). ``regulates`` and
+    its variants are intentionally excluded -- GO.db's ANCESTOR tables do not
+    include them, and go-basic already drops cross-ontology edges.
     """
     terms = {}
     parents = defaultdict(set)
@@ -61,6 +67,13 @@ def parse_obo(path):
                     parent_id = line[6:].split("!")[0].strip()
                     if current_id:
                         parents[current_id].add(parent_id)
+                elif line.startswith("relationship: part_of "):
+                    # part_of propagates like is_a for annotation (a gene in a
+                    # part is a gene in the whole). Other relationship types
+                    # (regulates, has_part, ...) are NOT ancestors -- skip them.
+                    parent_id = line[len("relationship: part_of "):].split("!")[0].strip()
+                    if current_id and parent_id.startswith("GO:"):
+                        parents[current_id].add(parent_id)
                 elif line.startswith("is_obsolete: true"):
                     in_term = False
                     current_id = None
@@ -74,7 +87,7 @@ def parse_obo(path):
 
 
 def get_ancestors(go_id, parents, _cache=None):
-    """Get all ancestor GO IDs (transitive is_a closure)."""
+    """Get all ancestor GO IDs (transitive is_a + part_of closure)."""
     if _cache is None:
         _cache = {}
     if go_id in _cache:

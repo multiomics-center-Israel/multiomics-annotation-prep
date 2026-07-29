@@ -91,6 +91,46 @@ def main():
             refresh=refresh,
         )
 
+    # mummichog metabolic model (compound-centric; new output type)
+    mcg = modules.get("mummichog_model", {})
+    if mcg.get("enabled", False):
+        from src.prepare_mummichog_model import prepare_mummichog_model
+        log_msg("=== Module: mummichog_model ===")
+        prepare_mummichog_model(
+            kegg_code=mcg.get("kegg_code"),
+            out_dir=out_dir,
+            cache_dir=cache_dir,
+            source=mcg.get("source", "kegg_org"),
+            model_organism=mcg.get("model_organism"),
+            model_kegg_code=mcg.get("model_kegg_code"),
+            target_organism=mcg.get("target_organism"),
+            source_version=mcg.get("source_version"),
+            date=mcg.get("date"),
+            refresh=refresh,
+            validate=mcg.get("validate", False),
+            kaas_file=mcg.get("kaas"),
+            emit_compound_sets=mcg.get("emit_compound_sets", False),
+        )
+
+    # KEGG compound sets (ID-based metabolomics enrichment; GMT + table)
+    kcs = modules.get("kegg_compound_sets", {})
+    if kcs.get("enabled", False):
+        from src.prepare_kegg_compound_sets import prepare_kegg_compound_sets
+        log_msg("=== Module: kegg_compound_sets ===")
+        prepare_kegg_compound_sets(
+            kegg_code=kcs.get("kegg_code"),
+            out_dir=out_dir,
+            cache_dir=cache_dir,
+            source=kcs.get("source", "kegg_org"),
+            model_organism=kcs.get("model_organism"),
+            model_kegg_code=kcs.get("model_kegg_code"),
+            target_organism=kcs.get("target_organism"),
+            source_version=kcs.get("source_version"),
+            date=kcs.get("date"),
+            refresh=refresh,
+            kaas_file=kcs.get("kaas"),
+        )
+
     log_msg("=== All modules done ===")
 
 

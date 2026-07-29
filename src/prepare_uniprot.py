@@ -78,7 +78,12 @@ def prepare_uniprot(taxon_id, out_dir, cache_dir, reviewed=True,
                       os.path.join(out_dir, f"GO2name_{ns}.tab"))
 
     if kegg_org:
-        prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh, "uniprot")
+        # Optional, additive KEGG companion — never discard the GO tables above.
+        try:
+            prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh, "uniprot")
+        except Exception as exc:  # noqa: BLE001 - KEGG tables are optional
+            log_msg("KEGG mapping for ", kegg_org, " (id_source=uniprot) failed; "
+                    "skipping KEGG tables, GO tables are unaffected: ", exc)
 
     log_msg("UniProt: ", len(rows), " proteins processed")
 

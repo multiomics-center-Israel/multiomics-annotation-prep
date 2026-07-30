@@ -138,11 +138,18 @@ jobs:
           zip="${tag}.zip"
           ( cd "$out" && zip -r "../$zip" . )
 
-          gh release create "$tag" "$zip" "$out"/*.tab \
+          # sha256 checksums so a project can pin {url, sha256} for reproducible,
+          # verified fetches (the zip for annotation_ref, each .tab individually).
+          ( sha256sum "$zip"; cd "$out" && sha256sum *.tab ) > SHA256SUMS.txt
+          echo "== SHA256SUMS =="; cat SHA256SUMS.txt
+
+          gh release create "$tag" "$zip" "$out"/*.tab SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "$tag" \
             --notes "GO (and KEGG when kegg_org is set) annotation tables (annotation_dir) from ${SOURCE} for '${LABEL}'.
           Download ${zip} and unzip into your project's annotation_dir, then point
           modes.rna.enrichment.annotation_dir at that folder.
+          For a reproducible, verified fetch, pin {url, sha256} from SHA256SUMS.txt
+          (the zip for annotation_ref; the .gmt/.tab individually).
           NOTE: gene IDs are the ${SOURCE} ID space -- they must match your counts' gene IDs."
           echo "Published $tag"

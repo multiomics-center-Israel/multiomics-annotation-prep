@@ -171,8 +171,11 @@ close relatives and name the real organism as the target.
 modes:
   metabolomics:
     enrichment:
+      run_enrichment: true
       gmt_file: annotation/cre_kegg_20260711.compound_pathway.gmt   # downloaded; relative to paths.raw
       mummichog:
+        enabled: true
+        ionization_mode: positive                                   # pos_default | positive | negative
         model_ref:                                                  # fetched + verified by the pipeline
           url: https://github.com/multiomics-center-Israel/multiomics-annotation-prep/releases/download/cre_kegg_20260711/cre_kegg_20260711.json
           sha256: <the sha256 from the Release>

@@ -17,15 +17,20 @@ name: Build gene annotation (RNA / proteomics)
 #        query.ko.txt      KAAS output (id<TAB>KO)              -> KEGG
 #        trinotate_go.txt  per-id GO table (id<TAB>GO ids)      -> GO
 #        go.gaf            GO Annotation File (e.g. GiardiaDB)  -> GO
-#        id_map.txt[.gz]   optional, re-keys go.gaf ids: an NCBI
-#                          *_feature_table.txt(.gz) or a 2-col TSV
+#        id_map.txt[.gz]   optional, re-keys go.gaf ids: a 2-col TSV or an
+#                          NCBI *_feature_table.txt(.gz)
 #      At least one of query.ko.txt / trinotate_go.txt / go.gaf is needed;
 #      trinotate_go.txt and go.gaf are alternatives (not both).
 #   2. Run this workflow with that <project> name and the omics it is for.
+#      To re-key go.gaf ids onto NCBI protein accessions, prefer the
+#      ncbi_assembly input over committing id_map: the runner downloads the
+#      assembly's public feature table itself and records its URL + sha256.
 #
-# It builds on a GitHub-hosted runner (open internet -> rest.kegg.jp +
-# purl.obolibrary.org reachable). GAFs from VEuPathDB sites need a logged-in
-# browser to download, which is why they are committed rather than fetched.
+# It builds on a GitHub-hosted runner (open internet -> rest.kegg.jp,
+# purl.obolibrary.org, ftp.ncbi.nlm.nih.gov reachable). GAFs from VEuPathDB
+# sites need a logged-in browser to download, which is why they are committed
+# rather than fetched. GO_provenance.json (GAF builds) and the release notes
+# record the inputs' sources and checksums, the commit and the run.
 
 on:
   workflow_dispatch:
@@ -39,6 +44,10 @@ on:
         type: choice
         options: [rna, proteomics]
         default: rna
+      ncbi_assembly:
+        description: "[go.gaf] Optional NCBI assembly accession (e.g. GCA_000002435.2): fetch its feature table to re-key GAF ids to protein accessions"
+        type: string
+        default: ""
       date:
         description: "Release date stamp YYYYMMDD (empty = today, UTC)"
         type: string
@@ -57,6 +66,7 @@ jobs:
     env:
       PROJECT: ${{ inputs.project }}
       OMICS: ${{ inputs.omics }}
+      NCBI_ASSEMBLY: ${{ inputs.ncbi_assembly }}
       IN_DATE: ${{ inputs.date }}
       STRIP: ${{ inputs.strip_isoform }}
       GH_TOKEN: ${{ github.token }}
@@ -98,8 +108,24 @@ jobs:
             echo "::error::$in_dir has both id_map.txt and id_map.txt.gz -- keep one."
             exit 1
           fi
-          if { [ -f "$in_dir/id_map.txt" ] || [ -f "$in_dir/id_map.txt.gz" ]; } && [ ! -f "$in_dir/go.gaf" ]; then
+          has_map=false
+          { [ -f "$in_dir/id_map.txt" ] || [ -f "$in_dir/id_map.txt.gz" ]; } && has_map=true
+          if [ "$has_map" = "true" ] && [ ! -f "$in_dir/go.gaf" ]; then
             echo "::warning::id_map is only applied to go.gaf; there is no go.gaf in $in_dir, so it is ignored."
+          fi
+          if [ -n "$NCBI_ASSEMBLY" ]; then
+            if ! printf '%s' "$NCBI_ASSEMBLY" | grep -Eq '^GC[AF]_[0-9]{9}\.[0-9]+$'; then
+              echo "::error::ncbi_assembly must be a versioned accession like GCA_000002435.2 (got '$NCBI_ASSEMBLY')."
+              exit 1
+            fi
+            if [ ! -f "$in_dir/go.gaf" ]; then
+              echo "::error::ncbi_assembly re-keys go.gaf ids, but $in_dir has no go.gaf."
+              exit 1
+            fi
+            if [ "$has_map" = "true" ]; then
+              echo "::error::Both ncbi_assembly and an id_map file are set -- use one."
+              exit 1
+            fi
           fi
 
       - name: Build annotation files
@@ -128,6 +154,7 @@ jobs:
             for m in "$in_dir/id_map.txt" "$in_dir/id_map.txt.gz"; do
               [ -f "$m" ] && map_args=(--id-map "$m")
             done
+            [ -n "$NCBI_ASSEMBLY" ] && map_args=(--ncbi-assembly "$NCBI_ASSEMBLY")
             python scripts/run_gaf.py --gaf "$in_dir/go.gaf" "${map_args[@]}" \
               --out "$out" --cache data
           else
@@ -152,7 +179,7 @@ jobs:
           fi
 
           shopt -s nullglob
-          ( cd "$out" && files=(*.tab *.gmt) && printf '%s\n' "${files[@]}" ) > files.txt
+          ( cd "$out" && files=(*.tab *.gmt *.json) && printf '%s\n' "${files[@]}" ) > files.txt
           mapfile -t built < files.txt
           if [ "${#built[@]}" -eq 0 ]; then
             echo "::error::No .tab/.gmt files were built -- nothing to publish."
@@ -177,11 +204,35 @@ jobs:
           modes.rna.enrichment.annotation_dir at that folder."
           fi
 
+          # Provenance in the notes: what was built from what, by which commit/run.
+          in_dir="annotation_inputs/$PROJECT"
+          {
+            echo "Gene-based enrichment annotation (${OMICS}) for project '${PROJECT}'."
+            echo
+            echo "${usage}"
+            echo
+            echo "## Provenance"
+            echo "- Built by commit ${GITHUB_SHA} in run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Inputs (annotation_inputs/${PROJECT}/, sha256):"
+            ( cd "$in_dir" && for f in query.ko.txt trinotate_go.txt go.gaf id_map.txt id_map.txt.gz; do
+                [ -f "$f" ] && echo "  - ${f}: $(sha256sum "$f" | cut -d' ' -f1)"
+              done; true )
+            if [ -n "$NCBI_ASSEMBLY" ]; then
+              echo "- GAF ids re-keyed with the NCBI feature table of ${NCBI_ASSEMBLY} (URL + sha256 in GO_provenance.json)"
+            fi
+            if [ -f "$in_dir/go.gaf" ]; then
+              echo "- go.gaf header:"
+              echo '```'
+              grep -m 20 '^!' "$in_dir/go.gaf" || true
+              echo '```'
+            fi
+            echo
+            echo "For a reproducible, verified fetch, pin {url, sha256} from SHA256SUMS.txt."
+            echo "NOTE: these files are keyed on the input ids -- they must match the ids in your data."
+          } > notes.md
+
           gh release create "$tag" "$zip" "${built[@]/#/$out/}" SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "$tag" \
-            --notes "Gene-based enrichment annotation (${OMICS}) for project '${PROJECT}'.
-          ${usage}
-          For a reproducible, verified fetch, pin {url, sha256} from SHA256SUMS.txt.
-          NOTE: these files are keyed on the input ids -- they must match the ids in your data."
+            --notes-file notes.md
           echo "Published $tag"

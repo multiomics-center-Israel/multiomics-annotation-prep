@@ -62,7 +62,7 @@ src/
   prepare_go.py            # per-gene GO table -> expanded GO enrichment files    [PRIMARY]
   prepare_ensembl.py       # BioMart REST path (model organisms)                  [secondary]
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
-  prepare_gaf.py           # GO GAF file (e.g. GiardiaDB) + optional id map -> GO tables + GMTs
+  prepare_gaf.py           # GO GAF (e.g. GiardiaDB) + optional id map / NCBI assembly -> GO tables + GMTs + provenance
   masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
   kegg_entities.py         # KEGG source loading (load_source: KO->reactions->compounds->pathways); shared, light
   prepare_mummichog_model.py # KEGG org code -> mummichog metabolic model JSON + manifest  [NEW output type]

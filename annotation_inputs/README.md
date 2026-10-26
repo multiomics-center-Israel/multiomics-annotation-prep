@@ -24,10 +24,13 @@ annotation_inputs/
 - `trinotate_go.txt` and `go.gaf` are alternatives -- keep only one.
 - `go.gaf`: VEuPathDB sites (GiardiaDB, PlasmoDB, ToxoDB, ...) need you to log in
   to download, so download the organism's GO GAF in the browser and upload it.
-- `id_map.txt[.gz]` applies to `go.gaf` only. Use it when the GAF's gene ids
-  differ from the ids in your data: an NCBI `*_feature_table.txt.gz` (maps
-  `locus_tag` -> protein `product_accession`), or a two-column TSV
-  `gaf_id <TAB> data_id`.
+- Re-keying `go.gaf` ids (when the GAF's gene ids differ from the ids in your
+  data): **prefer the workflow's `ncbi_assembly` input** (e.g.
+  `GCA_000002435.2`) -- the runner downloads that assembly's public NCBI feature
+  table (`locus_tag` -> protein `product_accession`) and records its URL +
+  sha256, so nothing extra is committed by hand. For any other mapping, commit
+  `id_map.txt[.gz]`: a two-column TSV `gaf_id <TAB> data_id` or an NCBI
+  `*_feature_table.txt(.gz)`. Use one or the other, not both.
 
 The IDs that end up in the output must match the IDs in your data (RNA counts
 `gene_id`, or the proteomics `Protein.Group`).
@@ -38,12 +41,16 @@ GitHub **Actions** -> **Build gene annotation (RNA / proteomics)** -> **Run work
 
 - `project` -- the folder name above (letters/digits/underscore/hyphen)
 - `omics` -- `rna` or `proteomics` (sets the release tag and notes)
+- `ncbi_assembly` -- optional, for `go.gaf` only (see above)
 - `date` -- empty = today (UTC)
 - `strip_isoform` -- RNA only: `true` strips `_iN` isoform suffixes from KAAS
   ids to gene level (default); ignored for proteomics
 
 Output: a Release `rna_annot_<project>_<date>` or `prot_annot_<project>_<date>`
 with every built `.tab` and `.gmt` file, a convenience zip and `SHA256SUMS.txt`.
+The release notes record the commit, the run, each input's sha256 and the
+`go.gaf` header (source database + release); GAF builds also attach
+`GO_provenance.json` (GAF, id map and GO ontology versions + checksums).
 
 - RNA: unzip into your project and point `modes.rna.enrichment.annotation_dir`
   at that folder.

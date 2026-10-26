@@ -215,7 +215,8 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 **GAF מאתר אורגניזם (למשל GiardiaDB / VEuPathDB) → `go.gaf` (GO).** אתרי VEuPathDB מפרסמים קובץ GO לכל אורגניזם, אבל ההורדה דורשת התחברות לאתר, ולכן מורידים ידנית ומעלים:
 - מתחברים לאתר, מורידים את קובץ ה‑GO GAF של האורגניזם, ומשנים שם ל‑`go.gaf`.
-- אם המזהים בנתונים שונים ממזהי האתר (למשל חלבונים `KAE…` מ‑NCBI מול locus tags `GL50803_…`), מעלים גם `id_map.txt` (או `id_map.txt.gz`): קובץ `*_feature_table.txt.gz` של ה‑assembly מ‑NCBI (ממפה `locus_tag` → `product_accession`), או טבלה בשתי עמודות `מזהה_ב‑GAF ⇥ מזהה_בנתונים`.
+- אם המזהים בנתונים שונים ממזהי האתר (למשל חלבונים `KAE…` מ‑NCBI מול locus tags `GL50803_…`), ממלאים ב‑workflow את `ncbi_assembly` (למשל `GCA_000002435.2`): ה‑runner מוריד בעצמו את ה‑feature table הציבורי של ה‑assembly (ממפה `locus_tag` → `product_accession`) ומתעד את הכתובת וה‑sha256 — אין צורך להעלות אותו ידנית. למיפוי אחר — מעלים `id_map.txt` (או `.gz`): טבלה בשתי עמודות `מזהה_ב‑GAF ⇥ מזהה_בנתונים`.
+- **תיעוד:** ה‑Release כולל את ה‑commit, קישור לריצה, sha256 של כל קובץ קלט ואת כותרת ה‑`go.gaf` (מקור + גרסה), ו‑`GO_provenance.json` עם הגרסאות וה‑checksums של ה‑GAF, המיפוי וה‑GO ontology.
 - `go.gaf` ו‑`trinotate_go.txt` הם חלופות — לא שניהם באותה תיקייה.
 
 **לחלבונים:** מריצים את אותו workflow עם `omics: proteomics`. מקבלים Release `prot_annot_<project>_<date>`, ומכוונים את `modes.proteomics.pathway.gmt_file` לקבצי `GO_*.gmt` (ו‑`KEGG_pathway.gmt`). אם ה‑GMT ממופתח ל‑Protein.Group כמו שהוא — `skip_annotation: true`.

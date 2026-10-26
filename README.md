@@ -1,19 +1,211 @@
-# multiomic-annotation-prep
+# multiomics-annotation-prep
 
-Prepare **organism-specific annotation files for enrichment analysis** (KEGG & GO)
-so they can be consumed directly by the `multiomic-core` pipeline and the
-`Neat_RNA-Seq` / `Neat_Proteomics` workflows.
+This repo makes the **annotation files that `multiomics-core` needs for
+enrichment analysis** — the files that say which genes, proteins or metabolites
+belong to which GO term or KEGG pathway.
 
-Unlike the manual approach in
-[Neat_Annotation](https://github.com/veredcc/Neat_Annotation), this repo
-**downloads the required source files automatically** from the original
-resources (KEGG REST API, Gene Ontology, Ensembl/BioMart, UniProt) and produces
-ready-to-use output files.
+You don't need to run any code. Everything is done with **GitHub Actions**: you
+fill in a short form, a GitHub machine downloads the reference data and builds
+the files, and the result is published as a **Release** (a dated, permanent
+download page) that you point your pipeline at.
 
-> 🌿 **מדריך צוות (Hebrew team guide):** [`docs/team-guide-he.md`](docs/team-guide-he.md)
-> — how to build artifacts, run the pipeline, and add a new organism, end to end.
+> 🌿 Hebrew team guide: [`docs/team-guide-he.md`](docs/team-guide-he.md)
 
 ---
+
+## Which Action do I need?
+
+| I am analysing… | My organism | Use this Action |
+|---|---|---|
+| **Proteomics** | any organism, when I want GO / KEGG files keyed on my own protein ids (needed for non-model organisms) | [Build gene annotation (RNA / proteomics)](#1-build-gene-annotation-rna--proteomics) |
+| **RNA-seq** | non-model (de novo transcriptome, or an organism database such as GiardiaDB) | [Build gene annotation (RNA / proteomics)](#1-build-gene-annotation-rna--proteomics) |
+| **RNA-seq** | model organism in Ensembl or UniProt | [Build model-organism annotation](#2-build-model-organism-annotation) |
+| **Metabolomics** | any organism KEGG knows (or a close relative) | [Build & publish organism artifacts](#3-build--publish-organism-artifacts-metabolomics) |
+| — | I published something by mistake | [Delete releases](#4-delete-releases-maintenance) |
+
+> Proteomics of a **model organism** (human, mouse, …) usually needs nothing from
+> this repo: `multiomics-core` loads GO / KEGG for it by itself from
+> `annotation.organism`.
+
+**How to run any of them:** open the repo's **Actions** tab → pick the Action on
+the left → **Run workflow** (top right) → fill in the fields → **Run workflow**.
+When the run turns green, the files are on the repo's **Releases** page.
+
+---
+
+## 1. Build gene annotation (RNA / proteomics)
+
+**What it does:** turns your project's own annotation into GO and KEGG gene sets
+keyed on **the ids in your data** (gene ids for RNA, protein ids for proteomics).
+
+### Step 1 — put the inputs in the repo
+
+Create a folder `annotation_inputs/<project>/` (on GitHub: go into
+`annotation_inputs`, **Add file → Upload files**, and drag in a *folder* named
+after your project). Put in it whichever of these you have:
+
+| File | What it is | Gives you |
+|---|---|---|
+| `query.ko.txt` | KAAS result: one line per id, `id <TAB> KO` | KEGG |
+| `trinotate_go.txt` | GO table: `id <TAB> GO ids` (from Trinotate, eggNOG, …) | GO |
+| a `.gaf` file | GO annotation file from an organism database (e.g. GiardiaDB). **Keep the downloaded file name** — it contains the database release, which then appears in the Release record. | GO |
+| `id_map.txt` | *optional*, only if the ids need translating: `id_in_file <TAB> id_in_your_data` | — |
+
+Rules: use `trinotate_go.txt` **or** a `.gaf`, not both; use `query.ko.txt`
+**or** the `kegg_org` field below, not both. You can skip the folder entirely
+if all you need is KEGG from `kegg_org`.
+
+### Step 2 — fill in the form
+
+| Field | What to enter |
+|---|---|
+| `project` | the folder name from step 1 |
+| `omics` | `rna` or `proteomics` |
+| `kegg_org` | *optional.* A KEGG organism code (e.g. `gla` for Giardia, `cre` for Chlamydomonas). Builds KEGG straight from KEGG's own annotation — **no KAAS needed**. Check the code exists at `https://rest.kegg.jp/list/<code>`. |
+| `ncbi_assembly` | *optional.* An NCBI assembly accession (e.g. `GCA_000002435.2`). Use it when your data uses NCBI protein ids (like `KAE8301220.1`) but the GAF / KEGG use gene names (like `GL50803_0017558`): the Action downloads NCBI's table that links them and translates for you. |
+| `id_label` | *optional.* A short word for the id type, added to the Release name (e.g. `kae`). Lets you keep two builds of the same project on the same day. Defaults to `ncbi` when `ncbi_assembly` is set. |
+| `date` | leave empty (today) |
+| `strip_isoform` | RNA only: leave ticked if your counts are per gene (`..._g1`), untick if per transcript (`..._g1_i1`) |
+
+### Step 3 — what you get
+
+A Release named `prot_annot_<project>[_<label>]_<date>` (proteomics) or
+`rna_annot_<project>[_<label>]_<date>` (RNA), containing:
+
+- `GO_BP.gmt`, `GO_MF.gmt`, `GO_CC.gmt`, `KEGG_pathway.gmt` — gene sets
+- `GO2gene_*.tab`, `GO2name_*.tab`, `KEGG_pathway2gene.tab`, `KEGG_pathway2name.tab` — the same as tables
+- `GO_provenance.json` / `KEGG_provenance.json` — where every input came from (file names, versions, checksums)
+- `SHA256SUMS.txt` and a zip of everything
+
+The Release notes also record which commit and run built it.
+
+### Step 4 — use it in `multiomics-core`
+
+**Proteomics** reads the `.gmt` files. Download them into `annotation/` inside
+your project's **raw-data folder** (`paths.raw`; relative paths below are
+relative to it), then:
+
+```yaml
+modes:
+  proteomics:
+    annotation:
+      organism: "Giardia lamblia"
+      skip_annotation: true        # the GMT uses the raw Protein.Group ids
+    pathway:
+      gmt_file:
+        - annotation/GO_BP.gmt
+        - annotation/GO_MF.gmt
+        - annotation/GO_CC.gmt
+        - annotation/KEGG_pathway.gmt
+```
+
+**RNA** reads the `.tab` files. Unzip the Release zip into a folder in your
+project and point at it (a relative path here is relative to the **project
+folder**, `project.dir`):
+
+```yaml
+modes:
+  rna:
+    enrichment:
+      annotation_dir: "data/annotation"   # the folder with the .tab files
+```
+
+> ⚠️ **The ids must match your data.** If the GMT has `KAE…` ids and your data
+> has `GL50803_…` ids, nothing matches and enrichment finds nothing. When in
+> doubt, open one GMT, look at a few ids, and compare with your Protein.Group /
+> gene_id column.
+
+**Example — Giardia proteomics:** the GiardiaDB GAF was uploaded to
+`annotation_inputs/giardia/`, and the Action was run with `omics: proteomics`,
+`kegg_org: gla`, `ncbi_assembly: GCA_000002435.2`. Result: GO + KEGG gene sets
+keyed on the `KAE…` protein ids the proteomics data uses.
+
+---
+
+## 2. Build model-organism annotation
+
+**What it does:** for an organism with a reference genome in **Ensembl** or a
+proteome in **UniProt**, downloads GO (and optionally KEGG) directly — no input
+files needed.
+
+| Field | What to enter |
+|---|---|
+| `source` | `ensembl` or `uniprot` |
+| `label` | a short name for the Release (e.g. `athaliana`) |
+| `dataset`, `mart`, `host` | Ensembl only. The BioMart dataset (e.g. `athaliana_eg_gene`); for plants/algae/protists also the matching `mart` (e.g. `plants_mart`) and `host` (e.g. `https://plants.ensembl.org`) |
+| `taxon_id` | UniProt only. The NCBI taxon id (e.g. `3702`) |
+| `reviewed` | UniProt only. Ticked = reviewed (Swiss-Prot) entries only |
+| `kegg_org` | *optional.* KEGG organism code to also build KEGG tables |
+| `date` | leave empty |
+
+**You get:** a Release `<label>_<source>_annot_<date>` with the `GO2gene_*` /
+`GO2name_*` (and KEGG) **`.tab` tables**.
+
+**Use it in:** the **RNA** pipeline — unzip and set
+`modes.rna.enrichment.annotation_dir` to that folder (as in Action 1). Gene ids
+are Ensembl gene ids or UniProt accessions, so they must match your counts.
+
+---
+
+## 3. Build & publish organism artifacts (metabolomics)
+
+**What it does:** builds metabolomics pathway files from KEGG for one or more
+KEGG organism codes. For an organism KEGG doesn't have (e.g. *Coelastrella*), use
+close relatives and name the real organism as the target.
+
+| Field | What to enter |
+|---|---|
+| `organisms` | comma-separated KEGG codes (default `cre,cvr,mng`) |
+| `target_organism` | the organism you actually study, if the codes above are stand-ins (default `Coelastrella sp.`); leave empty if they are the organism itself |
+| `date` | leave empty |
+
+**You get:** one Release per organism, `<code>_kegg_<date>`, containing:
+
+- `<code>_kegg_<date>.json` — metabolic model for **mummichog** (m/z-based analysis)
+- `<code>_kegg_<date>.compound_pathway.gmt` — pathway compound sets for **ID-based** enrichment
+- a manifest with versions and checksums
+
+**Use it in** the **metabolomics** pipeline:
+
+```yaml
+modes:
+  metabolomics:
+    enrichment:
+      gmt_file: annotation/cre_kegg_20260711.compound_pathway.gmt   # downloaded; relative to paths.raw
+      mummichog:
+        model_ref:                                                  # fetched + verified by the pipeline
+          url: https://github.com/multiomics-center-Israel/multiomics-annotation-prep/releases/download/cre_kegg_20260711/cre_kegg_20260711.json
+          sha256: <the sha256 from the Release>
+```
+
+---
+
+## 4. Delete releases (maintenance)
+
+Releases can't be overwritten, so to rebuild something under the same name you
+first delete it. Enter the Release name(s) in `tags` (comma-separated) and type
+`DELETE` in `confirm`. The Release and its tag are removed.
+
+---
+
+## Good to know
+
+- **Releases are permanent.** Running the same Action twice on the same day
+  with the same name fails on purpose. Delete the old Release first, or use a
+  different `id_label` / `date`.
+- **Only one thing is manual:** files that need a login to download (e.g.
+  GiardiaDB) or that come from a web form (KAAS). Everything public — KEGG,
+  Gene Ontology, NCBI, Ensembl, UniProt — is downloaded by the Action itself.
+- **Everything is recorded.** Each Release lists its inputs with checksums, the
+  database versions, and the commit and run that built it, so a result can be
+  traced back to exactly what produced it.
+
+---
+
+# Developer reference
+
+Everything below is for running the scripts locally or changing the code.
+`CLAUDE.md` has the conventions and the output contract.
 
 ## What it produces
 
@@ -327,7 +519,6 @@ multiomic-annotation-prep/
 ## Dependencies
 
 Python (>= 3.8) with: `requests`, `pyyaml` (install via pip).
-The Ensembl module additionally requires `pybiomart`.
 The mummichog metabolic-model module has its own **scoped, pinned** optional
 deps in `requirements-mummichog.txt` (`metDataModel`, `mass2chem`, and
 `mummichog` for validation) — the gene-set modules do not need them.

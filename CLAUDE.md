@@ -63,6 +63,8 @@ src/
   prepare_ensembl.py       # BioMart REST path (model organisms)                  [secondary]
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
   prepare_gaf.py           # GO GAF (e.g. GiardiaDB) + optional id map / NCBI assembly -> GO tables + GMTs + provenance
+  prepare_kegg_org_sets.py # KEGG organism code -> KEGG tables + KEGG_pathway.gmt + provenance (re-keyable; no KAAS)
+  id_maps.py               # shared id maps: NCBI feature table by assembly accession, or a committed TSV
   masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
   kegg_entities.py         # KEGG source loading (load_source: KO->reactions->compounds->pathways); shared, light
   prepare_mummichog_model.py # KEGG org code -> mummichog metabolic model JSON + manifest  [NEW output type]
@@ -75,6 +77,7 @@ scripts/
   run_ensembl.py           # CLI for the Ensembl/BioMart module (model organisms)
   run_uniprot.py           # CLI for the UniProt module (by taxon id)
   run_gaf.py               # CLI for the GAF module
+  run_kegg_org_sets.py     # CLI for KEGG organism gene sets
   run_all.py               # config-driven driver (reads config/config.yml)
 .github/workflows/         # workflow_dispatch pipelines: build on a runner + publish a dated GitHub Release
   publish-organism-artifacts.yml # KEGG code -> mummichog model + compound-set GMT (compound-based)
@@ -135,8 +138,8 @@ consumes two distinct kinds of artifact:
 
 All three `workflow_dispatch` workflows publish dated, immutable Releases:
 `build-rna-annotation.yml` (project inputs from `annotation_inputs/<project>/`:
-KAAS + a Trinotate-style GO table or a GAF; `omics: rna|proteomics` sets the
-release tag/notes) and `build-model-annotation.yml` (`source: ensembl|uniprot`)
+KAAS or a KEGG organism code (`kegg_org`) + a Trinotate-style GO table or a
+GAF; `omics: rna|proteomics` and `id_label` set the release tag/notes) and `build-model-annotation.yml` (`source: ensembl|uniprot`)
 build the gene-based bundle; `run_ensembl.py` / `run_uniprot.py` are the latter's
 local CLIs. Proteomics in multiomic-core reads only the `.gmt` files
 (`modes.proteomics.pathway.gmt_file`), not `annotation_dir`. GAFs from VEuPathDB

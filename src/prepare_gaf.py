@@ -11,26 +11,15 @@ the same GO tables and GMTs as the other GO paths via
 every input came from.
 """
 
-import gzip
 import json
 import os
-import re
 from collections import defaultdict
 from datetime import datetime, timezone
 
 from .download_go import GO_OBO_URL
+from .id_maps import _open_text, resolve_id_map
 from .prepare_go import write_go_sets
-from .utils import cached_download, git_head_sha, log_msg, sha256_file, write_tab
-
-NCBI_GENOMES = "https://ftp.ncbi.nlm.nih.gov/genomes/all"
-_ASSEMBLY = re.compile(r"^(GC[AF])_(\d{3})(\d{3})(\d{3})\.\d+$")
-
-
-def _open_text(path):
-    """Open a plain or gzip-compressed text file (detected by magic bytes)."""
-    with open(path, "rb") as f:
-        is_gz = f.read(2) == b"\x1f\x8b"
-    return gzip.open(path, "rt") if is_gz else open(path)
+from .utils import git_head_sha, log_msg, sha256_file, write_tab
 
 
 def parse_gaf(path):
@@ -82,69 +71,6 @@ def obo_data_version(path):
     return "unknown"
 
 
-def pick_assembly_dir(listing_html, accession):
-    """Pick ``<accession>_<asm_name>`` from an NCBI genomes directory listing."""
-    names = sorted(set(re.findall(r'href="(GC[AF]_[^"/]+)/"', listing_html)))
-    hits = [n for n in names if n.startswith(accession + "_")]
-    if not hits:
-        raise RuntimeError(f"Assembly {accession} not found on NCBI; folders listed: "
-                           f"{', '.join(names) or 'none'}")
-    return hits[0]
-
-
-def ncbi_feature_table_url(accession, cache_dir, refresh=False):
-    """Resolve the ``*_feature_table.txt.gz`` URL of an NCBI assembly accession.
-
-    The assembly name is part of the path (``GCA_000002435.2_<name>``), so it is
-    read from the parent directory listing rather than guessed.
-    """
-    m = _ASSEMBLY.match(accession)
-    if not m:
-        raise ValueError(f"'{accession}' is not a versioned NCBI assembly accession "
-                         f"(expected e.g. GCA_000002435.2)")
-    parent = f"{NCBI_GENOMES}/{m.group(1)}/{m.group(2)}/{m.group(3)}/{m.group(4)}/"
-    index = cached_download(parent, f"ncbi_{accession}_index.html", cache_dir, refresh)
-    with open(index) as f:
-        folder = pick_assembly_dir(f.read(), accession)
-    return f"{parent}{folder}/{folder}_feature_table.txt.gz"
-
-
-def parse_id_map(path):
-    """Parse an id map -> dict: source id -> set of target ids.
-
-    Two formats are accepted:
-
-    * an NCBI ``*_feature_table.txt(.gz)`` -- CDS rows map ``locus_tag`` to
-      ``product_accession`` (protein accession, e.g. the ids in an NCBI FASTA);
-    * a two-column TSV ``source_id<TAB>target_id`` (``#`` lines ignored).
-    """
-    mapping = defaultdict(set)
-    with _open_text(path) as f:
-        first = f.readline()
-        if first.startswith("# feature"):
-            header = first.lstrip("# ").rstrip("\n").split("\t")
-            try:
-                i_feat = header.index("feature")
-                i_loc = header.index("locus_tag")
-                i_acc = header.index("product_accession")
-            except ValueError as exc:
-                raise ValueError(f"NCBI feature table {path} lacks a column: {exc}")
-            for line in f:
-                cols = line.rstrip("\n").split("\t")
-                if len(cols) <= max(i_feat, i_loc, i_acc) or cols[i_feat] != "CDS":
-                    continue
-                if cols[i_loc] and cols[i_acc]:
-                    mapping[cols[i_loc]].add(cols[i_acc])
-        else:
-            for line in [first] + list(f):
-                if not line.strip() or line.startswith("#"):
-                    continue
-                cols = line.rstrip("\n").split("\t")
-                if len(cols) >= 2 and cols[0] and cols[1]:
-                    mapping[cols[0]].add(cols[1])
-    return dict(mapping)
-
-
 def remap_genes(gene2go, gene_info, id_map):
     """Re-key gene2go / gene_info onto the target ids of *id_map*.
 
@@ -177,7 +103,7 @@ def prepare_gaf(gaf, out_dir, cache_dir, id_map=None, ncbi_assembly=None,
     """Write GO tables + GMTs, Annotation.tab and GO_provenance.json from a GAF.
 
     gaf:           path to the GAF (plain or .gz).
-    id_map:        optional path of an id map (see ``parse_id_map``) that
+    id_map:        optional path of an id map (see ``id_maps.parse_id_map``) that
                    re-keys the GAF gene ids onto the project's id space.
     ncbi_assembly: alternative to ``id_map``: a versioned NCBI assembly
                    accession whose public feature table is downloaded and used
@@ -192,16 +118,9 @@ def prepare_gaf(gaf, out_dir, cache_dir, id_map=None, ncbi_assembly=None,
     if not gene2go:
         raise RuntimeError(f"No GO annotations parsed from {gaf} -- is it a GAF file?")
 
-    map_info = None
-    if ncbi_assembly:
-        url = ncbi_feature_table_url(ncbi_assembly, cache_dir, refresh)
-        id_map = cached_download(url, os.path.basename(url), cache_dir, refresh)
-        map_info = {"source": "ncbi_assembly", "assembly": ncbi_assembly, "url": url}
-    elif id_map:
-        map_info = {"source": "file"}
-    if id_map:
-        map_info.update(file=os.path.basename(id_map), sha256=sha256_file(id_map))
-        gene2go, gene_info = remap_genes(gene2go, gene_info, parse_id_map(id_map))
+    mapping, map_info = resolve_id_map(id_map, ncbi_assembly, cache_dir, refresh)
+    if mapping is not None:
+        gene2go, gene_info = remap_genes(gene2go, gene_info, mapping)
         log_msg("after id mapping: ", len(gene2go), " ids with GO annotations")
 
     annot_rows = [(g, *gene_info.get(g, ("", ""))) for g in sorted(gene2go)]

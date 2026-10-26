@@ -276,6 +276,7 @@ as the pathway + module analysis tables were produced.
 | KEGG (non-model) | `src/prepare_kegg_nonmodel.py` | transcriptome + KAAS | KEGG REST tables |
 | GO (non-model)   | `src/prepare_go.py`           | Trinotate GO         | GO term names + hierarchy |
 | GO from GAF      | `src/prepare_gaf.py`          | a downloaded GAF (e.g. GiardiaDB), optional NCBI id map | GO term names + hierarchy |
+| KEGG by organism | `src/prepare_kegg_org_sets.py` | organism KEGG annotates (e.g. `gla`), no KAAS; optional NCBI id map | KEGG REST links + names, writes GMT |
 | Ensembl/BioMart  | `src/prepare_ensembl.py`      | genome in Ensembl    | BioMart attributes, KEGG map |
 | UniProt          | `src/prepare_uniprot.py`      | proteome in UniProt  | UniProt REST, KEGG map |
 | mummichog model  | `src/prepare_mummichog_model.py` | metabolomics, m/z-based (`mummichog -n`) | KEGG compounds/reactions/pathways |
@@ -298,6 +299,8 @@ multiomic-annotation-prep/
 │   ├── download_go.py           # GO term/hierarchy downloads (cached)
 │   ├── prepare_go.py            # GO table -> expanded GO enrichment files
 │   ├── prepare_gaf.py           # GAF (+ id map) -> expanded GO enrichment files
+│   ├── prepare_kegg_org_sets.py # KEGG org code (+ id map) -> KEGG tables + GMT
+│   ├── id_maps.py               # shared id maps (NCBI feature table / TSV)
 │   ├── prepare_ensembl.py       # Ensembl/BioMart path (model organisms)
 │   ├── prepare_uniprot.py       # UniProt path (proteomics)
 │   ├── masses.py                # neutral monoisotopic mass (via mass2chem)
@@ -308,6 +311,7 @@ multiomic-annotation-prep/
 │   ├── run_kegg_nonmodel.py
 │   ├── run_go.py
 │   ├── run_gaf.py
+│   ├── run_kegg_org_sets.py
 │   ├── run_mummichog_model.py
 │   ├── run_kegg_compound_sets.py
 │   ├── run_ensembl.py           # Ensembl/BioMart GO (+ KEGG) tables (model organisms)

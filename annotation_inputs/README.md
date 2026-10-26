@@ -44,7 +44,13 @@ GitHub **Actions** -> **Build gene annotation (RNA / proteomics)** -> **Run work
 
 - `project` -- the folder name above (letters/digits/underscore/hyphen)
 - `omics` -- `rna` or `proteomics` (sets the release tag and notes)
-- `ncbi_assembly` -- optional, for the GAF only (see above)
+- `kegg_org` -- optional KEGG organism code (e.g. `gla` for Giardia). For an
+  organism KEGG already annotates, this replaces KAAS: the runner fetches
+  KEGG's own gene -> pathway links and writes `KEGG_pathway.gmt` (+ tables and
+  `KEGG_provenance.json` with the KEGG release). Not together with
+  `query.ko.txt`.
+- `ncbi_assembly` -- optional, re-keys the GAF and `kegg_org` locus tags to
+  NCBI protein accessions (see above)
 - `id_label` -- optional id-type label added to the release tag (e.g. `kae`,
   `gl50803`), so builds of one project keyed on different ids can coexist on
   the same date; empty = `ncbi` when `ncbi_assembly` is set, else no label

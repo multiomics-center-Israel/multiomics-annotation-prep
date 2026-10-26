@@ -14,13 +14,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json  # noqa: E402
 
-from src.prepare_gaf import (  # noqa: E402
-    gaf_header,
+from src.id_maps import (  # noqa: E402
     ncbi_feature_table_url,
-    obo_data_version,
-    parse_gaf,
     parse_id_map,
     pick_assembly_dir,
+)
+from src.prepare_gaf import (  # noqa: E402
+    gaf_header,
+    obo_data_version,
+    parse_gaf,
     prepare_gaf,
     remap_genes,
 )

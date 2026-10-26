@@ -219,8 +219,9 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 - **Ensembl / BioMart** (`run_ensembl.py`) — לפי Ensembl gene ID. דורש `pybiomart`. ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
 - **UniProt** (`run_uniprot.py`) — לפי `taxon_id` (Swiss-Prot/reviewed), ממופתח ל‑UniProt accessions.
+- **VEuPathDB** (`run_veupathdb.py`) — קובץ ה‑GO GAF של אורגניזם מאתר VEuPathDB (GiardiaDB, PlasmoDB, ToxoDB…), ממופתח למזהי הגנים של האתר, או למזהים אחרים דרך `id_map_url` (למשל feature table של NCBI → protein accessions). כותב גם `GO_{BP,MF,CC}.gmt` לפייפליין החלבונים (`modes.proteomics.pathway.gmt_file`).
 
-**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot`, ממלאים `dataset` (Ensembl) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
+**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot|veupathdb`, ממלאים `dataset` (Ensembl; ב‑veupathdb: `site/Organism[@release]`, למשל `giardiadb/GintestinalisAssemblageAWB`) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
 
 ### התאמת רמת ה‑ID (חוזר בכל מסלול)
 

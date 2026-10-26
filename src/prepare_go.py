@@ -11,7 +11,17 @@ from .utils import log_msg, write_gmt, write_go2gene, write_go2name
 def prepare_go(go_table_file, out_dir, cache_dir, refresh=False, expand=True):
     gene2go = _parse_go_table(go_table_file)
     log_msg("GO input: ", len(gene2go), " genes with GO annotations")
+    write_go_sets(gene2go, out_dir, cache_dir, refresh, expand)
 
+
+def write_go_sets(gene2go, out_dir, cache_dir, refresh=False, expand=True):
+    """Write GO2gene/GO2name tables + GO GMTs per namespace from gene -> GO ids.
+
+    Shared by every source that ends in a per-gene GO mapping (Trinotate-style
+    table, VEuPathDB GAF), so they all expand and serialize identically.
+
+    gene2go: dict mapping gene id -> iterable of GO ids.
+    """
     terms, parents = go_term_table(cache_dir, refresh)
 
     pairs = []

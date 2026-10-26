@@ -62,6 +62,7 @@ src/
   prepare_go.py            # per-gene GO table -> expanded GO enrichment files    [PRIMARY]
   prepare_ensembl.py       # BioMart REST path (model organisms)                  [secondary]
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
+  prepare_veupathdb.py     # VEuPathDB GO GAF (+ optional id map) -> GO tables + GMTs [secondary]
   masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
   kegg_entities.py         # KEGG source loading (load_source: KO->reactions->compounds->pathways); shared, light
   prepare_mummichog_model.py # KEGG org code -> mummichog metabolic model JSON + manifest  [NEW output type]
@@ -73,11 +74,12 @@ scripts/
   run_kegg_compound_sets.py # CLI wrapper for the compound-set GMT + table
   run_ensembl.py           # CLI for the Ensembl/BioMart module (model organisms)
   run_uniprot.py           # CLI for the UniProt module (by taxon id)
+  run_veupathdb.py         # CLI for the VEuPathDB module (by site/organism)
   run_all.py               # config-driven driver (reads config/config.yml)
 .github/workflows/         # workflow_dispatch pipelines: build on a runner + publish a dated GitHub Release
   publish-organism-artifacts.yml # KEGG code -> mummichog model + compound-set GMT (compound-based)
   build-rna-annotation.yml       # rna_inputs/<project>/ (KAAS+Trinotate) -> annotation_dir tables (gene-based)
-  build-model-annotation.yml     # Ensembl/UniProt -> annotation_dir tables (gene-based, model organisms)
+  build-model-annotation.yml     # Ensembl/UniProt/VEuPathDB -> annotation_dir tables (+ GO GMTs for veupathdb)
 rna_inputs/                # committed KAAS/Trinotate inputs per project, read by build-rna-annotation.yml
 config/config.yml          # which modules run + their inputs
 requirements-mummichog.txt # scoped, pinned optional deps for the mummichog model only

@@ -45,11 +45,15 @@ GitHub **Actions** -> **Build gene annotation (RNA / proteomics)** -> **Run work
 - `project` -- the folder name above (letters/digits/underscore/hyphen)
 - `omics` -- `rna` or `proteomics` (sets the release tag and notes)
 - `ncbi_assembly` -- optional, for the GAF only (see above)
+- `id_label` -- optional id-type label added to the release tag (e.g. `kae`,
+  `gl50803`), so builds of one project keyed on different ids can coexist on
+  the same date; empty = `ncbi` when `ncbi_assembly` is set, else no label
 - `date` -- empty = today (UTC)
 - `strip_isoform` -- RNA only: `true` strips `_iN` isoform suffixes from KAAS
   ids to gene level (default); ignored for proteomics
 
-Output: a Release `rna_annot_<project>_<date>` or `prot_annot_<project>_<date>`
+Output: a Release `rna_annot_<project>[_<id_label>]_<date>` or
+`prot_annot_<project>[_<id_label>]_<date>`
 with every built `.tab` and `.gmt` file, a convenience zip and `SHA256SUMS.txt`.
 The release notes record the commit, the run, each input's sha256 and the
 GAF's name and header (source database + release); GAF builds also attach

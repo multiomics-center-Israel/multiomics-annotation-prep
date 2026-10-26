@@ -51,6 +51,10 @@ on:
         type: choice
         options: [rna, proteomics]
         default: rna
+      id_label:
+        description: "Optional id-type label added to the release tag, e.g. kae, gl50803 (empty = 'ncbi' when ncbi_assembly is set, else none)"
+        type: string
+        default: ""
       ncbi_assembly:
         description: "[GAF] Optional NCBI assembly accession (e.g. GCA_000002435.2): fetch its feature table to re-key GAF ids to protein accessions"
         type: string
@@ -74,6 +78,7 @@ jobs:
       PROJECT: ${{ inputs.project }}
       OMICS: ${{ inputs.omics }}
       NCBI_ASSEMBLY: ${{ inputs.ncbi_assembly }}
+      ID_LABEL: ${{ inputs.id_label }}
       IN_DATE: ${{ inputs.date }}
       STRIP: ${{ inputs.strip_isoform }}
       GH_TOKEN: ${{ github.token }}
@@ -92,6 +97,11 @@ jobs:
           # project is used to build a path; restrict to safe characters.
           if ! printf '%s' "$PROJECT" | grep -Eq '^[A-Za-z0-9_-]+$'; then
             echo "::error::project must be letters/digits/underscore/hyphen only (got '$PROJECT')."
+            exit 1
+          fi
+          # id_label goes into the release tag; keep it short and tag-safe.
+          if [ -n "$ID_LABEL" ] && ! printf '%s' "$ID_LABEL" | grep -Eq '^[a-z0-9]{1,20}$'; then
+            echo "::error::id_label must be 1-20 lowercase letters/digits (got '$ID_LABEL')."
             exit 1
           fi
           if [ -n "$IN_DATE" ] && ! printf '%s' "$IN_DATE" | grep -Eq '^[0-9]{8}$'; then
@@ -187,7 +197,12 @@ jobs:
           [ -z "$date" ] && date="$(date -u +%Y%m%d)"
           # rna keeps its historical tag prefix so existing release names stay stable.
           if [ "$OMICS" = "proteomics" ]; then prefix="prot_annot"; else prefix="rna_annot"; fi
-          tag="${prefix}_${PROJECT}_${date}"
+          # The id label separates builds of one project keyed on different id
+          # spaces (e.g. GiardiaDB locus tags vs NCBI protein accessions), so
+          # both can exist on the same date.
+          label="$ID_LABEL"
+          [ -z "$label" ] && [ -n "$NCBI_ASSEMBLY" ] && label="ncbi"
+          tag="${prefix}_${PROJECT}${label:+_$label}_${date}"
           out="annotation_out"
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -224,7 +239,7 @@ jobs:
           # Provenance in the notes: what was built from what, by which commit/run.
           in_dir="annotation_inputs/$PROJECT"
           {
-            echo "Gene-based enrichment annotation (${OMICS}) for project '${PROJECT}'."
+            echo "Gene-based enrichment annotation (${OMICS}) for project '${PROJECT}'${label:+, id type '$label'}."
             echo
             echo "${usage}"
             echo

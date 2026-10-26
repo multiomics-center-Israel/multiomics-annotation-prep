@@ -219,7 +219,7 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 - **תיעוד:** ה‑Release כולל את ה‑commit, קישור לריצה, sha256 של כל קובץ קלט ואת שם וכותרת קובץ ה‑GAF (מקור + גרסה), ו‑`GO_provenance.json` עם הגרסאות וה‑checksums של ה‑GAF, המיפוי וה‑GO ontology.
 - קובץ ה‑GAF ו‑`trinotate_go.txt` הם חלופות — לא שניהם באותה תיקייה.
 
-**לחלבונים:** מריצים את אותו workflow עם `omics: proteomics`. מקבלים Release `prot_annot_<project>_<date>`, ומכוונים את `modes.proteomics.pathway.gmt_file` לקבצי `GO_*.gmt` (ו‑`KEGG_pathway.gmt`). אם ה‑GMT ממופתח ל‑Protein.Group כמו שהוא — `skip_annotation: true`.
+**לחלבונים:** מריצים את אותו workflow עם `omics: proteomics`. מקבלים Release `prot_annot_<project>[_<id_label>]_<date>` (השדה `id_label`, למשל `kae`, מציין את סוג המזהים; ריק עם `ncbi_assembly` → `ncbi`), ומכוונים את `modes.proteomics.pathway.gmt_file` לקבצי `GO_*.gmt` (ו‑`KEGG_pathway.gmt`). אם ה‑GMT ממופתח ל‑Protein.Group כמו שהוא — `skip_annotation: true`.
 
 ### ב. מודל — גנום ב‑Ensembl או פרוטאום ב‑UniProt
 

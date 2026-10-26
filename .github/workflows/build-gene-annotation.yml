@@ -16,13 +16,15 @@ name: Build gene annotation (RNA / proteomics)
 #      Upload files on GitHub). Filenames must be exactly:
 #        query.ko.txt      KAAS output (id<TAB>KO)              -> KEGG
 #        trinotate_go.txt  per-id GO table (id<TAB>GO ids)      -> GO
-#        go.gaf            GO Annotation File (e.g. GiardiaDB)  -> GO
-#        id_map.txt[.gz]   optional, re-keys go.gaf ids: a 2-col TSV or an
+#        <name>.gaf[.gz]   one GO Annotation File, any name (e.g.
+#                          GiardiaDB-71_..._GO.gaf) -- keep the downloaded
+#                          name, it carries the source release   -> GO
+#        id_map.txt[.gz]   optional, re-keys GAF ids: a 2-col TSV or an
 #                          NCBI *_feature_table.txt(.gz)
-#      At least one of query.ko.txt / trinotate_go.txt / go.gaf is needed;
-#      trinotate_go.txt and go.gaf are alternatives (not both).
+#      At least one of query.ko.txt / trinotate_go.txt / a GAF is needed;
+#      trinotate_go.txt and a GAF are alternatives (not both).
 #   2. Run this workflow with that <project> name and the omics it is for.
-#      To re-key go.gaf ids onto NCBI protein accessions, prefer the
+#      To re-key GAF ids onto NCBI protein accessions, prefer the
 #      ncbi_assembly input over committing id_map: the runner downloads the
 #      assembly's public feature table itself and records its URL + sha256.
 #
@@ -45,7 +47,7 @@ on:
         options: [rna, proteomics]
         default: rna
       ncbi_assembly:
-        description: "[go.gaf] Optional NCBI assembly accession (e.g. GCA_000002435.2): fetch its feature table to re-key GAF ids to protein accessions"
+        description: "[GAF] Optional NCBI assembly accession (e.g. GCA_000002435.2): fetch its feature table to re-key GAF ids to protein accessions"
         type: string
         default: ""
       date:
@@ -93,15 +95,25 @@ jobs:
           fi
           in_dir="annotation_inputs/$PROJECT"
           if [ ! -d "$in_dir" ]; then
-            echo "::error::Folder $in_dir not found. Upload query.ko.txt, trinotate_go.txt and/or go.gaf there first (Add file -> Upload files)."
+            echo "::error::Folder $in_dir not found. Upload query.ko.txt, trinotate_go.txt and/or a .gaf there first (Add file -> Upload files)."
             exit 1
           fi
-          if [ ! -f "$in_dir/query.ko.txt" ] && [ ! -f "$in_dir/trinotate_go.txt" ] && [ ! -f "$in_dir/go.gaf" ]; then
-            echo "::error::$in_dir has none of query.ko.txt, trinotate_go.txt, go.gaf."
+          # The GAF keeps its downloaded name (it carries the source release),
+          # so find it by extension and hand its path to the later steps.
+          shopt -s nullglob
+          gafs=("$in_dir"/*.gaf "$in_dir"/*.gaf.gz)
+          if [ "${#gafs[@]}" -gt 1 ]; then
+            echo "::error::$in_dir has more than one GAF (${gafs[*]}) -- keep one."
             exit 1
           fi
-          if [ -f "$in_dir/trinotate_go.txt" ] && [ -f "$in_dir/go.gaf" ]; then
-            echo "::error::$in_dir has both trinotate_go.txt and go.gaf -- keep only the GO source you want."
+          GAF="${gafs[0]:-}"
+          echo "GAF=$GAF" >> "$GITHUB_ENV"
+          if [ ! -f "$in_dir/query.ko.txt" ] && [ ! -f "$in_dir/trinotate_go.txt" ] && [ -z "$GAF" ]; then
+            echo "::error::$in_dir has none of query.ko.txt, trinotate_go.txt, a .gaf file."
+            exit 1
+          fi
+          if [ -f "$in_dir/trinotate_go.txt" ] && [ -n "$GAF" ]; then
+            echo "::error::$in_dir has both trinotate_go.txt and a GAF -- keep only the GO source you want."
             exit 1
           fi
           if [ -f "$in_dir/id_map.txt" ] && [ -f "$in_dir/id_map.txt.gz" ]; then
@@ -110,16 +122,16 @@ jobs:
           fi
           has_map=false
           { [ -f "$in_dir/id_map.txt" ] || [ -f "$in_dir/id_map.txt.gz" ]; } && has_map=true
-          if [ "$has_map" = "true" ] && [ ! -f "$in_dir/go.gaf" ]; then
-            echo "::warning::id_map is only applied to go.gaf; there is no go.gaf in $in_dir, so it is ignored."
+          if [ "$has_map" = "true" ] && [ -z "$GAF" ]; then
+            echo "::warning::id_map is only applied to a GAF; there is no .gaf in $in_dir, so it is ignored."
           fi
           if [ -n "$NCBI_ASSEMBLY" ]; then
             if ! printf '%s' "$NCBI_ASSEMBLY" | grep -Eq '^GC[AF]_[0-9]{9}\.[0-9]+$'; then
               echo "::error::ncbi_assembly must be a versioned accession like GCA_000002435.2 (got '$NCBI_ASSEMBLY')."
               exit 1
             fi
-            if [ ! -f "$in_dir/go.gaf" ]; then
-              echo "::error::ncbi_assembly re-keys go.gaf ids, but $in_dir has no go.gaf."
+            if [ -z "$GAF" ]; then
+              echo "::error::ncbi_assembly re-keys GAF ids, but $in_dir has no .gaf file."
               exit 1
             fi
             if [ "$has_map" = "true" ]; then
@@ -149,16 +161,16 @@ jobs:
           if [ -f "$in_dir/trinotate_go.txt" ]; then
             python scripts/run_go.py --go-table "$in_dir/trinotate_go.txt" \
               --out "$out" --cache data
-          elif [ -f "$in_dir/go.gaf" ]; then
+          elif [ -n "$GAF" ]; then
             map_args=()
             for m in "$in_dir/id_map.txt" "$in_dir/id_map.txt.gz"; do
               [ -f "$m" ] && map_args=(--id-map "$m")
             done
             [ -n "$NCBI_ASSEMBLY" ] && map_args=(--ncbi-assembly "$NCBI_ASSEMBLY")
-            python scripts/run_gaf.py --gaf "$in_dir/go.gaf" "${map_args[@]}" \
+            python scripts/run_gaf.py --gaf "$GAF" "${map_args[@]}" \
               --out "$out" --cache data
           else
-            echo "::warning::no trinotate_go.txt or go.gaf in $in_dir -- skipping GO"
+            echo "::warning::no trinotate_go.txt or .gaf in $in_dir -- skipping GO"
           fi
 
           echo "== built files =="
@@ -214,16 +226,17 @@ jobs:
             echo "## Provenance"
             echo "- Built by commit ${GITHUB_SHA} in run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- Inputs (annotation_inputs/${PROJECT}/, sha256):"
-            ( cd "$in_dir" && for f in query.ko.txt trinotate_go.txt go.gaf id_map.txt id_map.txt.gz; do
-                [ -f "$f" ] && echo "  - ${f}: $(sha256sum "$f" | cut -d' ' -f1)"
-              done; true )
+            for f in "$in_dir"/query.ko.txt "$in_dir"/trinotate_go.txt "$GAF" \
+                     "$in_dir"/id_map.txt "$in_dir"/id_map.txt.gz; do
+              [ -n "$f" ] && [ -f "$f" ] && echo "  - $(basename "$f"): $(sha256sum "$f" | cut -d' ' -f1)"
+            done; true
             if [ -n "$NCBI_ASSEMBLY" ]; then
               echo "- GAF ids re-keyed with the NCBI feature table of ${NCBI_ASSEMBLY} (URL + sha256 in GO_provenance.json)"
             fi
-            if [ -f "$in_dir/go.gaf" ]; then
-              echo "- go.gaf header:"
+            if [ -n "$GAF" ]; then
+              echo "- $(basename "$GAF") header:"
               echo '```'
-              grep -m 20 '^!' "$in_dir/go.gaf" || true
+              zgrep -m 20 '^!' "$GAF" || true
               echo '```'
             fi
             echo

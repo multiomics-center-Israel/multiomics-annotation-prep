@@ -15,16 +15,19 @@ annotation_inputs/
 └── <project>/
     ├── query.ko.txt        # KAAS output (id <TAB> KO)              -> KEGG
     ├── trinotate_go.txt    # per-id GO table (id <TAB> GO ids)      -> GO
-    ├── go.gaf              # GO Annotation File, e.g. from GiardiaDB -> GO
-    └── id_map.txt[.gz]     # optional: re-keys go.gaf ids (see below)
+    ├── <name>.gaf[.gz]     # one GO Annotation File, e.g. GiardiaDB-71_..._GO.gaf -> GO
+    └── id_map.txt[.gz]     # optional: re-keys GAF ids (see below)
 ```
 
-- At least one of `query.ko.txt`, `trinotate_go.txt`, `go.gaf` is needed; you
+- At least one of `query.ko.txt`, `trinotate_go.txt`, the GAF is needed; you
   get the databases whose input is present.
-- `trinotate_go.txt` and `go.gaf` are alternatives -- keep only one.
-- `go.gaf`: VEuPathDB sites (GiardiaDB, PlasmoDB, ToxoDB, ...) need you to log in
+- `trinotate_go.txt` and the GAF are alternatives -- keep only one.
+- The GAF: VEuPathDB sites (GiardiaDB, PlasmoDB, ToxoDB, ...) need you to log in
   to download, so download the organism's GO GAF in the browser and upload it.
-- Re-keying `go.gaf` ids (when the GAF's gene ids differ from the ids in your
+  **Keep the downloaded file name** (e.g. `GiardiaDB-71_GintestinalisAssemblageAWB_GO.gaf`):
+  it carries the source release, and the Release records it. Only one GAF per
+  folder.
+- Re-keying the GAF ids (when the GAF's gene ids differ from the ids in your
   data): **prefer the workflow's `ncbi_assembly` input** (e.g.
   `GCA_000002435.2`) -- the runner downloads that assembly's public NCBI feature
   table (`locus_tag` -> protein `product_accession`) and records its URL +
@@ -41,7 +44,7 @@ GitHub **Actions** -> **Build gene annotation (RNA / proteomics)** -> **Run work
 
 - `project` -- the folder name above (letters/digits/underscore/hyphen)
 - `omics` -- `rna` or `proteomics` (sets the release tag and notes)
-- `ncbi_assembly` -- optional, for `go.gaf` only (see above)
+- `ncbi_assembly` -- optional, for the GAF only (see above)
 - `date` -- empty = today (UTC)
 - `strip_isoform` -- RNA only: `true` strips `_iN` isoform suffixes from KAAS
   ids to gene level (default); ignored for proteomics
@@ -49,7 +52,7 @@ GitHub **Actions** -> **Build gene annotation (RNA / proteomics)** -> **Run work
 Output: a Release `rna_annot_<project>_<date>` or `prot_annot_<project>_<date>`
 with every built `.tab` and `.gmt` file, a convenience zip and `SHA256SUMS.txt`.
 The release notes record the commit, the run, each input's sha256 and the
-`go.gaf` header (source database + release); GAF builds also attach
+GAF's name and header (source database + release); GAF builds also attach
 `GO_provenance.json` (GAF, id map and GO ontology versions + checksums).
 
 - RNA: unzip into your project and point `modes.rna.enrichment.annotation_dir`
@@ -58,5 +61,5 @@ The release notes record the commit, the run, each input's sha256 and the
   `modes.proteomics.pathway.gmt_file`.
 
 > עברית: מעלים ל‑`annotation_inputs/<project>/` את `query.ko.txt` ו/או
-> `trinotate_go.txt` או `go.gaf` (+ `id_map.txt` אופציונלי), מריצים את ה‑workflow
+> `trinotate_go.txt` או the GAF (+ `id_map.txt` אופציונלי), מריצים את ה‑workflow
 > עם שם התיקייה ו‑`omics`, ומקבלים Release עם קבצי ה‑`.tab` וה‑`.gmt`.

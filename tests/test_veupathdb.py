@@ -13,11 +13,13 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.prepare_veupathdb import (  # noqa: E402
-    gaf_url,
+    gaf_dir_url,
     parse_gaf,
+    pick_gaf,
     parse_id_map,
     prepare_veupathdb,
     remap_genes,
+    resolve_gaf_url,
 )
 
 _OBO = """format-version: 1.2
@@ -93,14 +95,20 @@ def _read_gmt(path):
     return out
 
 
-def test_gaf_url_current_and_pinned():
-    assert gaf_url("GiardiaDB", "GintestinalisAssemblageAWB") == (
+_LISTING = """<html><body><pre>
+<a href="../">../</a>
+<a href="GiardiaDB-68_GintestinalisAssemblageAWB_Curated_GO.gaf">x</a>
+<a href="GiardiaDB-68_GintestinalisAssemblageAWB_GO.gaf">x</a>
+<a href="GiardiaDB-68_GintestinalisAssemblageBGS_GO.gaf">x</a>
+</pre></body></html>"""
+
+
+def test_gaf_dir_url_current_and_pinned():
+    assert gaf_dir_url("GiardiaDB", "GintestinalisAssemblageAWB") == (
         "https://giardiadb.org/common/downloads/Current_Release/"
-        "GintestinalisAssemblageAWB/gaf/"
-        "GiardiaDB-CURRENT_GintestinalisAssemblageAWB_GO.gaf")
-    assert gaf_url("plasmodb", "Pfalciparum3D7", 68) == (
-        "https://plasmodb.org/common/downloads/release-68/Pfalciparum3D7/gaf/"
-        "PlasmoDB-68_Pfalciparum3D7_GO.gaf")
+        "GintestinalisAssemblageAWB/gaf/")
+    assert gaf_dir_url("plasmodb", "Pfalciparum3D7", 68) == (
+        "https://plasmodb.org/common/downloads/release-68/Pfalciparum3D7/gaf/")
 
 
 @pytest.mark.parametrize("site,organism,release", [
@@ -108,9 +116,30 @@ def test_gaf_url_current_and_pinned():
     ("giardiadb", "../etc", "CURRENT"),
     ("giardiadb", "X", "68/../x"),
 ])
-def test_gaf_url_rejects_bad_input(site, organism, release):
+def test_gaf_dir_url_rejects_bad_input(site, organism, release):
     with pytest.raises(ValueError):
-        gaf_url(site, organism, release)
+        gaf_dir_url(site, organism, release)
+
+
+def test_pick_gaf_takes_the_organisms_go_file():
+    assert pick_gaf(_LISTING, "giardiadb", "GintestinalisAssemblageAWB") == (
+        "GiardiaDB-68_GintestinalisAssemblageAWB_GO.gaf")
+
+
+def test_pick_gaf_lists_what_it_saw_when_missing():
+    with pytest.raises(RuntimeError, match="BGS_GO.gaf"):
+        pick_gaf(_LISTING, "giardiadb", "GintestinalisAssemblageAEX")
+
+
+def test_resolve_gaf_url_reads_cached_listing(tmp_path):
+    cache = _cache(tmp_path)
+    _write(os.path.join(cache, "veupathdb_giardiadb_GintestinalisAssemblageAWB_"
+                               "CURRENT_gaf_index.html"), _LISTING)
+    assert resolve_gaf_url("giardiadb", "GintestinalisAssemblageAWB", "CURRENT",
+                           cache) == (
+        "https://giardiadb.org/common/downloads/Current_Release/"
+        "GintestinalisAssemblageAWB/gaf/"
+        "GiardiaDB-68_GintestinalisAssemblageAWB_GO.gaf")
 
 
 @pytest.mark.parametrize("gz", [False, True])

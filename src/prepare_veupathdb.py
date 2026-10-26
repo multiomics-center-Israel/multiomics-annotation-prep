@@ -36,8 +36,8 @@ SITES = {
 _SAFE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 
 
-def gaf_url(site, organism, release="CURRENT"):
-    """Build the VEuPathDB download URL of an organism's GO GAF.
+def gaf_dir_url(site, organism, release="CURRENT"):
+    """Build the VEuPathDB download directory that holds an organism's GO GAF.
 
     ``release`` is ``CURRENT`` (moving) or a release number such as ``68``
     (pinned, reproducible).
@@ -50,12 +50,38 @@ def gaf_url(site, organism, release="CURRENT"):
     for label, value in (("organism", organism), ("release", release)):
         if not _SAFE.match(value):
             raise ValueError(f"VEuPathDB {label} has unexpected characters: '{value}'")
-    if release.upper() == "CURRENT":
-        rel_dir, rel_tag = "Current_Release", "CURRENT"
-    else:
-        rel_dir, rel_tag = f"release-{release}", release
-    return (f"https://{key}.org/common/downloads/{rel_dir}/{organism}/gaf/"
-            f"{SITES[key]}-{rel_tag}_{organism}_GO.gaf")
+    rel_dir = ("Current_Release" if release.upper() == "CURRENT"
+               else f"release-{release}")
+    return f"https://{key}.org/common/downloads/{rel_dir}/{organism}/gaf/"
+
+
+def pick_gaf(listing_html, site, organism):
+    """Pick the organism's GO GAF file name from a directory listing.
+
+    File names carry the actual release number even under Current_Release
+    (``GiardiaDB-68_GintestinalisAssemblageAWB_GO.gaf``), so the name cannot be
+    built up front; it is read from the listing instead.
+    """
+    names = sorted(set(re.findall(r'href="([^"/?]+\.gaf(?:\.gz)?)"', listing_html)))
+    want = re.compile(rf"^{re.escape(SITES[site.lower()])}-[^_]+_"
+                      rf"{re.escape(organism)}_GO\.gaf(?:\.gz)?$")
+    hits = [n for n in names if want.match(n)]
+    if not hits:
+        raise RuntimeError(f"No {organism} GO GAF in the VEuPathDB listing; "
+                           f"files found: {', '.join(names) or 'none'}")
+    return hits[-1]
+
+
+def resolve_gaf_url(site, organism, release, cache_dir, refresh=False):
+    """Return the full URL of an organism's GO GAF by reading its directory."""
+    dir_url = gaf_dir_url(site, organism, release)
+    index = cached_download(
+        dir_url, f"veupathdb_{site.lower()}_{organism}_{release}_gaf_index.html",
+        cache_dir, refresh)
+    with open(index) as f:
+        name = pick_gaf(f.read(), site, organism)
+    log_msg("VEuPathDB GAF: ", name)
+    return dir_url + name
 
 
 def _fetch(src, cache_dir, refresh):
@@ -170,7 +196,7 @@ def prepare_veupathdb(site, organism, out_dir, cache_dir, release="CURRENT",
     id_map: optional path or URL of an id map (see ``parse_id_map``) that
             re-keys the GAF gene ids onto the project's id space.
     """
-    src = gaf or gaf_url(site, organism, release)
+    src = gaf or resolve_gaf_url(site, organism, release, cache_dir, refresh)
     gaf_path = _fetch(src, cache_dir, refresh)
     gene2go, gene_info = parse_gaf(gaf_path)
     log_msg("GAF: ", len(gene2go), " genes with GO annotations")

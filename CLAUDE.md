@@ -62,6 +62,9 @@ src/
   prepare_go.py            # per-gene GO table -> expanded GO enrichment files    [PRIMARY]
   prepare_ensembl.py       # BioMart REST path (model organisms)                  [secondary]
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
+  prepare_gaf.py           # GO GAF (e.g. GiardiaDB) + optional id map / NCBI assembly -> GO tables + GMTs + provenance
+  prepare_kegg_org_sets.py # KEGG organism code -> KEGG tables + KEGG_pathway.gmt + provenance (re-keyable; no KAAS)
+  id_maps.py               # shared id maps: NCBI feature table by assembly accession, or a committed TSV
   masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
   kegg_entities.py         # KEGG source loading (load_source: KO->reactions->compounds->pathways); shared, light
   prepare_mummichog_model.py # KEGG org code -> mummichog metabolic model JSON + manifest  [NEW output type]
@@ -73,12 +76,14 @@ scripts/
   run_kegg_compound_sets.py # CLI wrapper for the compound-set GMT + table
   run_ensembl.py           # CLI for the Ensembl/BioMart module (model organisms)
   run_uniprot.py           # CLI for the UniProt module (by taxon id)
+  run_gaf.py               # CLI for the GAF module
+  run_kegg_org_sets.py     # CLI for KEGG organism gene sets
   run_all.py               # config-driven driver (reads config/config.yml)
 .github/workflows/         # workflow_dispatch pipelines: build on a runner + publish a dated GitHub Release
   publish-organism-artifacts.yml # KEGG code -> mummichog model + compound-set GMT (compound-based)
-  build-rna-annotation.yml       # rna_inputs/<project>/ (KAAS+Trinotate) -> annotation_dir tables (gene-based)
+  build-rna-annotation.yml      # annotation_inputs/<project>/ (KAAS + Trinotate GO or GAF) -> .tab + .gmt (RNA / proteomics)
   build-model-annotation.yml     # Ensembl/UniProt -> annotation_dir tables (gene-based, model organisms)
-rna_inputs/                # committed KAAS/Trinotate inputs per project, read by build-rna-annotation.yml
+annotation_inputs/         # committed KAAS/GO/GAF inputs per project, read by build-rna-annotation.yml
 config/config.yml          # which modules run + their inputs
 requirements-mummichog.txt # scoped, pinned optional deps for the mummichog model only
 docs/team-guide-he.md      # Hebrew operator guide (build / run / add-organism / input-prep)
@@ -132,9 +137,14 @@ consumes two distinct kinds of artifact:
    too when `kegg_org` is set).
 
 All three `workflow_dispatch` workflows publish dated, immutable Releases:
-`build-rna-annotation.yml` (transcriptome inputs from `rna_inputs/<project>/`) and
-`build-model-annotation.yml` (`source: ensembl|uniprot`) build the gene-based
-`annotation_dir` bundle; `run_ensembl.py` / `run_uniprot.py` are their local CLIs.
+`build-rna-annotation.yml` (project inputs from `annotation_inputs/<project>/`:
+KAAS or a KEGG organism code (`kegg_org`) + a Trinotate-style GO table or a
+GAF; `omics: rna|proteomics` and `id_label` set the release tag/notes) and `build-model-annotation.yml` (`source: ensembl|uniprot`)
+build the gene-based bundle; `run_ensembl.py` / `run_uniprot.py` are the latter's
+local CLIs. Proteomics in multiomic-core reads only the `.gmt` files
+(`modes.proteomics.pathway.gmt_file`), not `annotation_dir`. GAFs from VEuPathDB
+sites need a logged-in browser to download, so they are committed as inputs, not
+fetched.
 The recurring gotcha for the gene-based path: the table gene IDs must match the
 RNA counts' `gene_id` (the pipeline warns on <5% overlap); `--no-strip-isoform`
 controls `_iN` collapsing.

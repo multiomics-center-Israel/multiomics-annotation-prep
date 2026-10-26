@@ -180,7 +180,7 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 מריצים את שניהם עם אותו `--out`, מקבלים את 8 הקבצים בתיקייה אחת, ומכוונים אליה את `annotation_dir`.
 
-**אוטומטי (workflow):** אפשר גם דרך GitHub Actions — **Build RNA annotation tables**. מעלים את `query.ko.txt` ו/או `trinotate_go.txt` ל‑`rna_inputs/<project>/` (Add file → Upload files), מריצים את ה‑workflow עם שם הפרויקט, ומקבלים Release `rna_annot_<project>_<date>` עם קבצי ה‑annotation (+ zip). מורידים, פורסים לתיקייה, ומכוונים אליה את `annotation_dir`. (הדגל `strip_isoform` שם — כמו הגוצ'ה למטה.)
+**אוטומטי (workflow):** אפשר גם דרך GitHub Actions — **Build gene annotation (RNA / proteomics)**. מעלים את `query.ko.txt` ו/או `trinotate_go.txt` (או קובץ `.gaf`, ראו למטה) ל‑`annotation_inputs/<project>/` (Add file → Upload files), מריצים את ה‑workflow עם שם הפרויקט ו‑`omics: rna`, ומקבלים Release `rna_annot_<project>_<date>` עם קבצי ה‑annotation (+ zip). מורידים, פורסים לתיקייה, ומכוונים אליה את `annotation_dir`. (הדגל `strip_isoform` שם — כמו הגוצ'ה למטה.)
 
 > ⚠️ **מזהי הגנים חייבים להתאים ל‑counts.** ה‑loader (`R/core/09_enrichment.R`) בודק חפיפה בין הגנים בטבלאות למזהי הגנים במטריצת ה‑counts, ומזהיר אם החפיפה <5% (*"Check that gene ID types match"*). לכן הטבלאות נבנות מ‑KAAS + Trinotate של **אותו** פרויקט — כדי שמרחב ה‑IDs יהיה זהה.
 
@@ -211,7 +211,17 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 - פייפליין: Trinity → TransDecoder → חיפושי הומולוגיה → טעינה ל‑SQLite → `Trinotate --report`.
 - חילוץ GO: הסקריפט `extract_GO_assignments_from_Trinotate_xls.pl` נותן `gene ⇥ GO`. ה‑parser של `run_go.py` עמיד לפורמט Trinotate המלא (מחלץ `GO:\d{7}`).
 
-**סדר הפעולות:** Trinity → TransDecoder → (KAAS + Trinotate במקביל) → שני הקבצים → העלאה ל‑`rna_inputs/<project>/` → הרצת ה‑workflow.
+**סדר הפעולות:** Trinity → TransDecoder → (KAAS + Trinotate במקביל) → שני הקבצים → העלאה ל‑`annotation_inputs/<project>/` → הרצת ה‑workflow.
+
+**GAF מאתר אורגניזם (למשל GiardiaDB / VEuPathDB) → קובץ `.gaf` (GO).** אתרי VEuPathDB מפרסמים קובץ GO לכל אורגניזם, אבל ההורדה דורשת התחברות לאתר, ולכן מורידים ידנית ומעלים:
+- מתחברים לאתר, מורידים את קובץ ה‑GO GAF של האורגניזם, ו**לא משנים את שמו** (למשל `GiardiaDB-71_GintestinalisAssemblageAWB_GO.gaf`) — מספר הגרסה בשם מתועד ב‑Release. קובץ GAF אחד לתיקייה.
+- אם המזהים בנתונים שונים ממזהי האתר (למשל חלבונים `KAE…` מ‑NCBI מול locus tags `GL50803_…`), ממלאים ב‑workflow את `ncbi_assembly` (למשל `GCA_000002435.2`): ה‑runner מוריד בעצמו את ה‑feature table הציבורי של ה‑assembly (ממפה `locus_tag` → `product_accession`) ומתעד את הכתובת וה‑sha256 — אין צורך להעלות אותו ידנית. למיפוי אחר — מעלים `id_map.txt` (או `.gz`): טבלה בשתי עמודות `מזהה_ב‑GAF ⇥ מזהה_בנתונים`.
+- **תיעוד:** ה‑Release כולל את ה‑commit, קישור לריצה, sha256 של כל קובץ קלט ואת שם וכותרת קובץ ה‑GAF (מקור + גרסה), ו‑`GO_provenance.json` עם הגרסאות וה‑checksums של ה‑GAF, המיפוי וה‑GO ontology.
+- קובץ ה‑GAF ו‑`trinotate_go.txt` הם חלופות — לא שניהם באותה תיקייה.
+
+**KEGG בלי KAAS:** לאורגניזם ש‑KEGG כבר מאנטט (למשל Giardia — `gla`) ממלאים ב‑workflow את `kegg_org`. ה‑runner מושך את הקישור גן→pathway מ‑KEGG REST, ממפה אותו עם אותו `ncbi_assembly`/`id_map` של ה‑GO, וכותב `KEGG_pathway.gmt` + `KEGG_provenance.json` (כולל גרסת KEGG). לא יחד עם `query.ko.txt`.
+
+**לחלבונים:** מריצים את אותו workflow עם `omics: proteomics`. מקבלים Release `prot_annot_<project>[_<id_label>]_<date>` (השדה `id_label`, למשל `kae`, מציין את סוג המזהים; ריק עם `ncbi_assembly` → `ncbi`), ומכוונים את `modes.proteomics.pathway.gmt_file` לקבצי `GO_*.gmt` (ו‑`KEGG_pathway.gmt`). אם ה‑GMT ממופתח ל‑Protein.Group כמו שהוא — `skip_annotation: true`.
 
 ### ב. מודל — גנום ב‑Ensembl או פרוטאום ב‑UniProt
 

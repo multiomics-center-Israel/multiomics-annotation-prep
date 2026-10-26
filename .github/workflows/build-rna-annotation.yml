@@ -1,38 +1,76 @@
-name: Build RNA annotation tables
+name: Build gene annotation (RNA / proteomics)
 
-# Manually-dispatched pipeline that turns a project's KAAS + Trinotate inputs
-# into the gene-based enrichment tables the RNA pipeline reads
-# (multiomic-core enrichment.annotation_dir), and publishes them as a dated,
-# immutable GitHub Release.
+# The file keeps its historical name (build-rna-annotation.yml): GitHub ties a
+# workflow's identity and run history to its path, and a workflow_dispatch can
+# only be started from a branch when a file at that path exists on the default
+# branch. Only the display name above changed.
+
+# Manually-dispatched pipeline that turns a project's committed annotation
+# inputs into the gene-based enrichment files multiomic-core reads, and
+# publishes them as a dated, immutable GitHub Release:
 #
-# Unlike the compound-centric organism artifacts, these tables are GENE-ID based
-# and project-specific, so the workflow is fed the project's input files rather
-# than a KEGG organism code:
+#   RNA        -> modes.rna.enrichment.annotation_dir   (the .tab tables)
+#   proteomics -> modes.proteomics.pathway.gmt_file     (the .gmt files)
 #
-#   1. Upload the project's inputs to  rna_inputs/<project>/  (Add file ->
+# Both are built from the same inputs; only the release tag and notes differ.
+# These files are keyed on the project's own IDs (genes, transcripts or
+# proteins), so the workflow is fed the project's files rather than an
+# organism code:
+#
+#   1. Upload the inputs to  annotation_inputs/<project>/  (Add file ->
 #      Upload files on GitHub). Filenames must be exactly:
-#        query.ko.txt        (KAAS output; gene<TAB>KO)   -> builds the KEGG tables
-#        trinotate_go.txt    (Trinotate GO; gene<TAB>GO)  -> builds the GO tables
-#      Either or both may be present.
-#   2. Run this workflow with that <project> name.
+#        query.ko.txt      KAAS output (id<TAB>KO)              -> KEGG
+#        trinotate_go.txt  per-id GO table (id<TAB>GO ids)      -> GO
+#        <name>.gaf[.gz]   one GO Annotation File, any name (e.g.
+#                          GiardiaDB-71_..._GO.gaf) -- keep the downloaded
+#                          name, it carries the source release   -> GO
+#        id_map.txt[.gz]   optional, re-keys GAF / kegg_org ids: a 2-col TSV or an
+#                          NCBI *_feature_table.txt(.gz)
+#      At least one of query.ko.txt / trinotate_go.txt / a GAF is needed;
+#      trinotate_go.txt and a GAF are alternatives (not both).
+#   2. Run this workflow with that <project> name and the omics it is for.
+#      For an organism KEGG annotates (e.g. Giardia, gla), set kegg_org instead
+#      of running KAAS: the runner fetches KEGG's own gene -> pathway links.
+#      To re-key GAF / KEGG locus tags onto NCBI protein accessions, prefer the
+#      ncbi_assembly input over committing id_map: the runner downloads the
+#      assembly's public feature table itself and records its URL + sha256.
 #
-# It builds on a GitHub-hosted runner (open internet -> rest.kegg.jp +
-# purl.obolibrary.org reachable) and publishes a Release tagged
-# rna_annot_<project>_<date> with the annotation_dir files + a convenience zip.
+# It builds on a GitHub-hosted runner (open internet -> rest.kegg.jp,
+# purl.obolibrary.org, ftp.ncbi.nlm.nih.gov reachable). GAFs from VEuPathDB
+# sites need a logged-in browser to download, which is why they are committed
+# rather than fetched. GO_provenance.json (GAF builds) and the release notes
+# record the inputs' sources and checksums, the commit and the run.
 
 on:
   workflow_dispatch:
     inputs:
       project:
-        description: "Folder name under rna_inputs/ holding query.ko.txt and/or trinotate_go.txt"
+        description: "Folder name under annotation_inputs/ holding the input files"
         type: string
         required: true
+      omics:
+        description: "Which pipeline the files are for (sets the release tag + notes)"
+        type: choice
+        options: [rna, proteomics]
+        default: rna
+      id_label:
+        description: "Optional id-type label added to the release tag, e.g. kae, gl50803 (empty = 'ncbi' when ncbi_assembly is set, else none)"
+        type: string
+        default: ""
+      kegg_org:
+        description: "Optional KEGG organism code (e.g. gla): build KEGG gene sets from KEGG's own annotation instead of a KAAS query.ko.txt"
+        type: string
+        default: ""
+      ncbi_assembly:
+        description: "[GAF / kegg_org] Optional NCBI assembly accession (e.g. GCA_000002435.2): fetch its feature table to re-key locus tags to protein accessions"
+        type: string
+        default: ""
       date:
         description: "Release date stamp YYYYMMDD (empty = today, UTC)"
         type: string
         default: ""
       strip_isoform:
-        description: "Strip _iN isoform suffixes to gene level (match your RNA counts' gene IDs)"
+        description: "[rna] Strip _iN isoform suffixes from KAAS ids to gene level (ignored for proteomics)"
         type: boolean
         default: true
 
@@ -44,6 +82,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROJECT: ${{ inputs.project }}
+      OMICS: ${{ inputs.omics }}
+      NCBI_ASSEMBLY: ${{ inputs.ncbi_assembly }}
+      ID_LABEL: ${{ inputs.id_label }}
+      KEGG_ORG: ${{ inputs.kegg_org }}
       IN_DATE: ${{ inputs.date }}
       STRIP: ${{ inputs.strip_isoform }}
       GH_TOKEN: ${{ github.token }}
@@ -64,53 +106,131 @@ jobs:
             echo "::error::project must be letters/digits/underscore/hyphen only (got '$PROJECT')."
             exit 1
           fi
+          # id_label goes into the release tag; keep it short and tag-safe.
+          if [ -n "$ID_LABEL" ] && ! printf '%s' "$ID_LABEL" | grep -Eq '^[a-z0-9]{1,20}$'; then
+            echo "::error::id_label must be 1-20 lowercase letters/digits (got '$ID_LABEL')."
+            exit 1
+          fi
           if [ -n "$IN_DATE" ] && ! printf '%s' "$IN_DATE" | grep -Eq '^[0-9]{8}$'; then
             echo "::error::date must be YYYYMMDD (got '$IN_DATE')."
             exit 1
           fi
-          in_dir="rna_inputs/$PROJECT"
-          if [ ! -d "$in_dir" ]; then
-            echo "::error::Folder $in_dir not found. Upload query.ko.txt and/or trinotate_go.txt there first (Add file -> Upload files)."
+          if [ -n "$KEGG_ORG" ] && ! printf '%s' "$KEGG_ORG" | grep -Eq '^[a-z]{3,4}$'; then
+            echo "::error::kegg_org must be a KEGG organism code like gla (got '$KEGG_ORG')."
             exit 1
           fi
-          if [ ! -f "$in_dir/query.ko.txt" ] && [ ! -f "$in_dir/trinotate_go.txt" ]; then
-            echo "::error::$in_dir has neither query.ko.txt nor trinotate_go.txt."
+          in_dir="annotation_inputs/$PROJECT"
+          if [ ! -d "$in_dir" ] && [ -z "$KEGG_ORG" ]; then
+            echo "::error::Folder $in_dir not found. Upload query.ko.txt, trinotate_go.txt and/or a .gaf there first (Add file -> Upload files)."
             exit 1
+          fi
+          # The GAF keeps its downloaded name (it carries the source release),
+          # so find it by extension and hand its path to the later steps.
+          shopt -s nullglob
+          gafs=("$in_dir"/*.[gG][aA][fF] "$in_dir"/*.[gG][aA][fF].[gG][zZ])
+          if [ "${#gafs[@]}" -gt 1 ]; then
+            echo "::error::$in_dir has more than one GAF (${gafs[*]}) -- keep one."
+            exit 1
+          fi
+          GAF="${gafs[0]:-}"
+          echo "GAF=$GAF" >> "$GITHUB_ENV"
+          if [ ! -f "$in_dir/query.ko.txt" ] && [ ! -f "$in_dir/trinotate_go.txt" ] && [ -z "$GAF" ] && [ -z "$KEGG_ORG" ]; then
+            echo "::error::$in_dir has none of query.ko.txt, trinotate_go.txt, a .gaf file, and kegg_org is not set."
+            exit 1
+          fi
+          if [ -f "$in_dir/query.ko.txt" ] && [ -n "$KEGG_ORG" ]; then
+            echo "::error::Both query.ko.txt and kegg_org are set -- pick one KEGG source."
+            exit 1
+          fi
+          if [ -f "$in_dir/trinotate_go.txt" ] && [ -n "$GAF" ]; then
+            echo "::error::$in_dir has both trinotate_go.txt and a GAF -- keep only the GO source you want."
+            exit 1
+          fi
+          if [ -f "$in_dir/id_map.txt" ] && [ -f "$in_dir/id_map.txt.gz" ]; then
+            echo "::error::$in_dir has both id_map.txt and id_map.txt.gz -- keep one."
+            exit 1
+          fi
+          has_map=false
+          { [ -f "$in_dir/id_map.txt" ] || [ -f "$in_dir/id_map.txt.gz" ]; } && has_map=true
+          if [ "$has_map" = "true" ] && [ -z "$GAF" ] && [ -z "$KEGG_ORG" ]; then
+            echo "::warning::id_map is only applied to a GAF or kegg_org; neither is used here, so it is ignored."
+          fi
+          # The map re-keys GAF / kegg_org ids only; Trinotate / KAAS ids pass
+          # through as-is, so mixing them is fine only if those are already in
+          # the target id space.
+          if { [ "$has_map" = "true" ] || [ -n "$NCBI_ASSEMBLY" ]; } && \
+             { [ -f "$in_dir/trinotate_go.txt" ] || [ -f "$in_dir/query.ko.txt" ]; }; then
+            echo "::warning::The id map re-keys only the GAF / kegg_org ids; trinotate_go.txt / query.ko.txt ids are used as-is -- make sure they are already in the same id space."
+          fi
+          if [ -n "$NCBI_ASSEMBLY" ]; then
+            if ! printf '%s' "$NCBI_ASSEMBLY" | grep -Eq '^GC[AF]_[0-9]{9}\.[0-9]+$'; then
+              echo "::error::ncbi_assembly must be a versioned accession like GCA_000002435.2 (got '$NCBI_ASSEMBLY')."
+              exit 1
+            fi
+            if [ -z "$GAF" ] && [ -z "$KEGG_ORG" ]; then
+              echo "::error::ncbi_assembly re-keys GAF / kegg_org ids, but there is no .gaf in $in_dir and kegg_org is not set."
+              exit 1
+            fi
+            if [ "$has_map" = "true" ]; then
+              echo "::error::Both ncbi_assembly and an id_map file are set -- use one."
+              exit 1
+            fi
           fi
 
-      - name: Build annotation tables
+      - name: Build annotation files
         run: |
-          in_dir="rna_inputs/$PROJECT"
+          in_dir="annotation_inputs/$PROJECT"
           out="annotation_out"
           mkdir -p "$out"
-          extra=""
-          [ "$STRIP" = "false" ] && extra="--no-strip-isoform"
 
-          if [ -f "$in_dir/query.ko.txt" ]; then
+          # One id map (committed file or NCBI assembly) for every source that
+          # takes one, so GO and KEGG sets share an id space.
+          map_args=()
+          for m in "$in_dir/id_map.txt" "$in_dir/id_map.txt.gz"; do
+            [ -f "$m" ] && map_args=(--id-map "$m")
+          done
+          [ -n "$NCBI_ASSEMBLY" ] && map_args=(--ncbi-assembly "$NCBI_ASSEMBLY")
+
+          if [ -n "$KEGG_ORG" ]; then
+            python scripts/run_kegg_org_sets.py --kegg-org "$KEGG_ORG" "${map_args[@]}" \
+              --out "$out" --cache data
+          elif [ -f "$in_dir/query.ko.txt" ]; then
+            extra=""
+            # Protein ids never carry Trinity isoform suffixes; stripping is RNA-only.
+            if [ "$OMICS" = "proteomics" ] || [ "$STRIP" = "false" ]; then
+              extra="--no-strip-isoform"
+            fi
             python scripts/run_kegg_nonmodel.py --kaas "$in_dir/query.ko.txt" \
               --out "$out" --cache data $extra
           else
-            echo "::warning::no query.ko.txt in $in_dir -- skipping KEGG tables"
+            echo "::warning::no query.ko.txt in $in_dir and no kegg_org -- skipping KEGG"
           fi
 
           if [ -f "$in_dir/trinotate_go.txt" ]; then
             python scripts/run_go.py --go-table "$in_dir/trinotate_go.txt" \
               --out "$out" --cache data
+          elif [ -n "$GAF" ]; then
+            python scripts/run_gaf.py --gaf "$GAF" "${map_args[@]}" \
+              --out "$out" --cache data
           else
-            echo "::warning::no trinotate_go.txt in $in_dir -- skipping GO tables"
+            echo "::warning::no trinotate_go.txt or .gaf in $in_dir -- skipping GO"
           fi
 
           echo "== built files =="
           ls -la "$out"
-          # the RNA pipeline reads these .tab files from annotation_dir
-          echo "== annotation_dir .tab files =="
-          ls "$out"/*.tab
 
       - name: Publish Release
         run: |
           date="$IN_DATE"
           [ -z "$date" ] && date="$(date -u +%Y%m%d)"
-          tag="rna_annot_${PROJECT}_${date}"
+          # rna keeps its historical tag prefix so existing release names stay stable.
+          if [ "$OMICS" = "proteomics" ]; then prefix="prot_annot"; else prefix="rna_annot"; fi
+          # The id label separates builds of one project keyed on different id
+          # spaces (e.g. GiardiaDB locus tags vs NCBI protein accessions), so
+          # both can exist on the same date.
+          label="$ID_LABEL"
+          [ -z "$label" ] && [ -n "$NCBI_ASSEMBLY" ] && label="ncbi"
+          tag="${prefix}_${PROJECT}${label:+_$label}_${date}"
           out="annotation_out"
 
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -118,21 +238,70 @@ jobs:
             exit 1
           fi
 
+          shopt -s nullglob
+          # printf with no arguments still prints one empty line; guard it.
+          ( cd "$out" && files=(*.tab *.gmt *.json) && { [ "${#files[@]}" -eq 0 ] || printf '%s\n' "${files[@]}"; } ) > files.txt
+          mapfile -t built < files.txt
+          if [ "${#built[@]}" -eq 0 ]; then
+            echo "::error::No .tab/.gmt files were built -- nothing to publish."
+            exit 1
+          fi
+
           zip="${tag}.zip"
           ( cd "$out" && zip -r "../$zip" . )
 
           # sha256 checksums so a project can pin {url, sha256} for reproducible,
-          # verified fetches (the zip for annotation_ref, each .tab individually).
-          ( sha256sum "$zip"; cd "$out" && sha256sum *.tab ) > SHA256SUMS.txt
+          # verified fetches (the zip for annotation_ref, each file individually).
+          ( sha256sum "$zip"; cd "$out" && sha256sum "${built[@]}" ) > SHA256SUMS.txt
           echo "== SHA256SUMS =="; cat SHA256SUMS.txt
 
-          gh release create "$tag" "$zip" "$out"/*.tab SHA256SUMS.txt \
+          if [ "$OMICS" = "proteomics" ]; then
+            usage="Proteomics: download the GO_*.gmt (and KEGG_pathway.gmt) files into your project
+          and list them under modes.proteomics.pathway.gmt_file. Set
+          modes.proteomics.annotation.skip_annotation: true when the ids are the raw
+          Protein.Group ids (no remapping to gene symbols)."
+          else
+            usage="RNA: download ${zip} and unzip into your RNA project's annotation_dir, then point
+          modes.rna.enrichment.annotation_dir at that folder."
+          fi
+
+          # Provenance in the notes: what was built from what, by which commit/run.
+          in_dir="annotation_inputs/$PROJECT"
+          {
+            echo "Gene-based enrichment annotation (${OMICS}) for project '${PROJECT}'${label:+, id type '$label'}."
+            echo
+            echo "${usage}"
+            echo
+            echo "## Provenance"
+            echo "- Built by commit ${GITHUB_SHA} in run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Inputs (annotation_inputs/${PROJECT}/, sha256):"
+            # List the id map only where it was applied (GAF / kegg_org).
+            map_files=()
+            if [ -n "$GAF" ] || [ -n "$KEGG_ORG" ]; then
+              map_files=("$in_dir"/id_map.txt "$in_dir"/id_map.txt.gz)
+            fi
+            for f in "$in_dir"/query.ko.txt "$in_dir"/trinotate_go.txt "$GAF" "${map_files[@]}"; do
+              [ -n "$f" ] && [ -f "$f" ] && echo "  - $(basename "$f"): $(sha256sum "$f" | cut -d' ' -f1)"
+            done; true
+            if [ -n "$KEGG_ORG" ]; then
+              echo "- KEGG gene sets from KEGG's own annotation of organism '${KEGG_ORG}' (release + sha256 in KEGG_provenance.json)"
+            fi
+            if [ -n "$NCBI_ASSEMBLY" ]; then
+              echo "- Ids re-keyed with the NCBI feature table of ${NCBI_ASSEMBLY} (URL + sha256 in the *_provenance.json files)"
+            fi
+            if [ -n "$GAF" ]; then
+              echo "- $(basename "$GAF") header:"
+              echo '```'
+              zgrep -m 20 '^!' "$GAF" || true
+              echo '```'
+            fi
+            echo
+            echo "For a reproducible, verified fetch, pin {url, sha256} from SHA256SUMS.txt."
+            echo "NOTE: these files are keyed on the input ids -- they must match the ids in your data."
+          } > notes.md
+
+          gh release create "$tag" "$zip" "${built[@]/#/$out/}" SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "$tag" \
-            --notes "RNA enrichment annotation tables (annotation_dir) for project '${PROJECT}'.
-          Download ${zip} and unzip into your RNA project's annotation_dir, then point
-          modes.rna.enrichment.annotation_dir at that folder.
-          For a reproducible, verified fetch, pin {url, sha256} from SHA256SUMS.txt
-          (the zip for annotation_ref; the .tab individually).
-          NOTE: these tables are gene-ID based -- they must match your counts' gene IDs."
+            --notes-file notes.md
           echo "Published $tag"

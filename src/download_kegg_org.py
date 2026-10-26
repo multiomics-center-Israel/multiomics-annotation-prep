@@ -58,21 +58,12 @@ def kegg_to_ensembl_map(kegg_org, ncbi_to_ensembl, cache_dir, refresh=False):
     return mapping
 
 
-def prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh=False,
-                        id_source="kegg", ext_id_map=None, ext_id_universe=None):
-    """Write ``KEGG_pathway2gene.tab`` / ``KEGG_pathway2name.tab`` for an organism.
+def kegg_org_links(kegg_org, cache_dir, refresh=False):
+    """Fetch an organism's KEGG gene -> pathway links and pathway names.
 
-    Gene ids are re-keyed onto the id space of the companion GO/annotation
-    tables so ``clusterProfiler`` can match them:
-
-    * ``id_source="kegg"`` (default) -> bare KEGG gene id (org prefix stripped).
-    * ``id_source`` in {ncbi-geneid, ncbi-proteinid, uniprot} -> KEGG ``/conv/``.
-    * ``ext_id_map`` / ``ext_id_universe`` supplied -> caller-built mapping,
-      used for id spaces KEGG's ``/conv/`` can't produce (Ensembl gene ids).
-      For each KEGG gene, ``ext_id_map`` wins; otherwise, if the prefix-stripped
-      KEGG id is in ``ext_id_universe`` it maps to itself (covers organisms like
-      Arabidopsis whose KEGG gene ids ARE the Ensembl locus codes). Genes
-      resolved by neither are dropped.
+    Returns ``(genes, pathways, pw_names)``: parallel lists of KEGG gene ids
+    (organism prefix kept, e.g. ``gla:GL50803_0010019``) and pathway ids
+    (``path:`` stripped), plus ``{pathway_id: name}``.
     """
     gene2path_url = f"https://rest.kegg.jp/link/pathway/{kegg_org}"
     gene2path_file = cached_download(gene2path_url,
@@ -96,6 +87,37 @@ def prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh=False,
                 continue
             genes.append(parts[0])
             pathways.append(parts[1].replace("path:", ""))
+
+    pw_names = {}
+    with open(pw_names_file) as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            parts = line.split("\t", 1)
+            if len(parts) < 2:
+                continue
+            pw_names[parts[0].replace("path:", "")] = parts[1]
+    return genes, pathways, pw_names
+
+
+def prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh=False,
+                        id_source="kegg", ext_id_map=None, ext_id_universe=None):
+    """Write ``KEGG_pathway2gene.tab`` / ``KEGG_pathway2name.tab`` for an organism.
+
+    Gene ids are re-keyed onto the id space of the companion GO/annotation
+    tables so ``clusterProfiler`` can match them:
+
+    * ``id_source="kegg"`` (default) -> bare KEGG gene id (org prefix stripped).
+    * ``id_source`` in {ncbi-geneid, ncbi-proteinid, uniprot} -> KEGG ``/conv/``.
+    * ``ext_id_map`` / ``ext_id_universe`` supplied -> caller-built mapping,
+      used for id spaces KEGG's ``/conv/`` can't produce (Ensembl gene ids).
+      For each KEGG gene, ``ext_id_map`` wins; otherwise, if the prefix-stripped
+      KEGG id is in ``ext_id_universe`` it maps to itself (covers organisms like
+      Arabidopsis whose KEGG gene ids ARE the Ensembl locus codes). Genes
+      resolved by neither are dropped.
+    """
+    genes, pathways, pw_names = kegg_org_links(kegg_org, cache_dir, refresh)
 
     if ext_id_map is not None or ext_id_universe:
         # Caller-supplied mapping (e.g. the Ensembl bridge). Prefer an explicit
@@ -133,17 +155,6 @@ def prepare_kegg_by_org(kegg_org, out_dir, cache_dir, refresh=False,
         pathways = mapped_paths
     else:
         genes = [re.sub(r"^[^:]+:", "", g) for g in genes]
-
-    pw_names = {}
-    with open(pw_names_file) as f:
-        for line in f:
-            line = line.rstrip("\n")
-            if not line:
-                continue
-            parts = line.split("\t", 1)
-            if len(parts) < 2:
-                continue
-            pw_names[parts[0].replace("path:", "")] = parts[1]
 
     path2gene_pairs = list(zip(pathways, genes))
     write_pathway2gene(path2gene_pairs,

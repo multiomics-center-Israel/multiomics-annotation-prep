@@ -1,7 +1,7 @@
 # Gene-based annotation inputs
 
 Project-specific inputs for the **Build gene annotation (RNA / proteomics)**
-workflow (`.github/workflows/build-gene-annotation.yml`). Unlike the
+workflow (`.github/workflows/build-rna-annotation.yml`). Unlike the
 compound-centric organism artifacts (which come from a KEGG organism code),
 these enrichment files are keyed on **your project's IDs** (genes, transcripts
 or proteins), so they are built from your project's own annotation files.

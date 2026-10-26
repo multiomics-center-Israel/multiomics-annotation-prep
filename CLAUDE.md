@@ -78,9 +78,9 @@ scripts/
   run_all.py               # config-driven driver (reads config/config.yml)
 .github/workflows/         # workflow_dispatch pipelines: build on a runner + publish a dated GitHub Release
   publish-organism-artifacts.yml # KEGG code -> mummichog model + compound-set GMT (compound-based)
-  build-gene-annotation.yml      # annotation_inputs/<project>/ (KAAS + Trinotate GO or GAF) -> .tab + .gmt (RNA / proteomics)
+  build-rna-annotation.yml      # annotation_inputs/<project>/ (KAAS + Trinotate GO or GAF) -> .tab + .gmt (RNA / proteomics)
   build-model-annotation.yml     # Ensembl/UniProt -> annotation_dir tables (gene-based, model organisms)
-annotation_inputs/         # committed KAAS/GO/GAF inputs per project, read by build-gene-annotation.yml
+annotation_inputs/         # committed KAAS/GO/GAF inputs per project, read by build-rna-annotation.yml
 config/config.yml          # which modules run + their inputs
 requirements-mummichog.txt # scoped, pinned optional deps for the mummichog model only
 docs/team-guide-he.md      # Hebrew operator guide (build / run / add-organism / input-prep)
@@ -134,7 +134,7 @@ consumes two distinct kinds of artifact:
    too when `kegg_org` is set).
 
 All three `workflow_dispatch` workflows publish dated, immutable Releases:
-`build-gene-annotation.yml` (project inputs from `annotation_inputs/<project>/`:
+`build-rna-annotation.yml` (project inputs from `annotation_inputs/<project>/`:
 KAAS + a Trinotate-style GO table or a GAF; `omics: rna|proteomics` sets the
 release tag/notes) and `build-model-annotation.yml` (`source: ensembl|uniprot`)
 build the gene-based bundle; `run_ensembl.py` / `run_uniprot.py` are the latter's

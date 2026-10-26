@@ -1,5 +1,10 @@
 name: Build gene annotation (RNA / proteomics)
 
+# The file keeps its historical name (build-rna-annotation.yml): GitHub ties a
+# workflow's identity and run history to its path, and a workflow_dispatch can
+# only be started from a branch when a file at that path exists on the default
+# branch. Only the display name above changed.
+
 # Manually-dispatched pipeline that turns a project's committed annotation
 # inputs into the gene-based enrichment files multiomic-core reads, and
 # publishes them as a dated, immutable GitHub Release:

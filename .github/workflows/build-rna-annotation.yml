@@ -24,7 +24,7 @@ name: Build gene annotation (RNA / proteomics)
 #        <name>.gaf[.gz]   one GO Annotation File, any name (e.g.
 #                          GiardiaDB-71_..._GO.gaf) -- keep the downloaded
 #                          name, it carries the source release   -> GO
-#        id_map.txt[.gz]   optional, re-keys GAF ids: a 2-col TSV or an
+#        id_map.txt[.gz]   optional, re-keys GAF / kegg_org ids: a 2-col TSV or an
 #                          NCBI *_feature_table.txt(.gz)
 #      At least one of query.ko.txt / trinotate_go.txt / a GAF is needed;
 #      trinotate_go.txt and a GAF are alternatives (not both).
@@ -127,7 +127,7 @@ jobs:
           # The GAF keeps its downloaded name (it carries the source release),
           # so find it by extension and hand its path to the later steps.
           shopt -s nullglob
-          gafs=("$in_dir"/*.gaf "$in_dir"/*.gaf.gz)
+          gafs=("$in_dir"/*.[gG][aA][fF] "$in_dir"/*.[gG][aA][fF].[gG][zZ])
           if [ "${#gafs[@]}" -gt 1 ]; then
             echo "::error::$in_dir has more than one GAF (${gafs[*]}) -- keep one."
             exit 1
@@ -154,6 +154,13 @@ jobs:
           { [ -f "$in_dir/id_map.txt" ] || [ -f "$in_dir/id_map.txt.gz" ]; } && has_map=true
           if [ "$has_map" = "true" ] && [ -z "$GAF" ] && [ -z "$KEGG_ORG" ]; then
             echo "::warning::id_map is only applied to a GAF or kegg_org; neither is used here, so it is ignored."
+          fi
+          # The map re-keys GAF / kegg_org ids only; Trinotate / KAAS ids pass
+          # through as-is, so mixing them is fine only if those are already in
+          # the target id space.
+          if { [ "$has_map" = "true" ] || [ -n "$NCBI_ASSEMBLY" ]; } && \
+             { [ -f "$in_dir/trinotate_go.txt" ] || [ -f "$in_dir/query.ko.txt" ]; }; then
+            echo "::warning::The id map re-keys only the GAF / kegg_org ids; trinotate_go.txt / query.ko.txt ids are used as-is -- make sure they are already in the same id space."
           fi
           if [ -n "$NCBI_ASSEMBLY" ]; then
             if ! printf '%s' "$NCBI_ASSEMBLY" | grep -Eq '^GC[AF]_[0-9]{9}\.[0-9]+$'; then
@@ -232,7 +239,8 @@ jobs:
           fi
 
           shopt -s nullglob
-          ( cd "$out" && files=(*.tab *.gmt *.json) && printf '%s\n' "${files[@]}" ) > files.txt
+          # printf with no arguments still prints one empty line; guard it.
+          ( cd "$out" && files=(*.tab *.gmt *.json) && { [ "${#files[@]}" -eq 0 ] || printf '%s\n' "${files[@]}"; } ) > files.txt
           mapfile -t built < files.txt
           if [ "${#built[@]}" -eq 0 ]; then
             echo "::error::No .tab/.gmt files were built -- nothing to publish."
@@ -267,8 +275,12 @@ jobs:
             echo "## Provenance"
             echo "- Built by commit ${GITHUB_SHA} in run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- Inputs (annotation_inputs/${PROJECT}/, sha256):"
-            for f in "$in_dir"/query.ko.txt "$in_dir"/trinotate_go.txt "$GAF" \
-                     "$in_dir"/id_map.txt "$in_dir"/id_map.txt.gz; do
+            # List the id map only where it was applied (GAF / kegg_org).
+            map_files=()
+            if [ -n "$GAF" ] || [ -n "$KEGG_ORG" ]; then
+              map_files=("$in_dir"/id_map.txt "$in_dir"/id_map.txt.gz)
+            fi
+            for f in "$in_dir"/query.ko.txt "$in_dir"/trinotate_go.txt "$GAF" "${map_files[@]}"; do
               [ -n "$f" ] && [ -f "$f" ] && echo "  - $(basename "$f"): $(sha256sum "$f" | cut -d' ' -f1)"
             done; true
             if [ -n "$KEGG_ORG" ]; then

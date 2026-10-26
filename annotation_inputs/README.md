@@ -16,7 +16,7 @@ annotation_inputs/
     ├── query.ko.txt        # KAAS output (id <TAB> KO)              -> KEGG
     ├── trinotate_go.txt    # per-id GO table (id <TAB> GO ids)      -> GO
     ├── <name>.gaf[.gz]     # one GO Annotation File, e.g. GiardiaDB-71_..._GO.gaf -> GO
-    └── id_map.txt[.gz]     # optional: re-keys GAF ids (see below)
+    └── id_map.txt[.gz]     # optional: re-keys GAF / kegg_org ids (see below)
 ```
 
 - At least one of `query.ko.txt`, `trinotate_go.txt`, the GAF is needed; you

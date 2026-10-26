@@ -1,4 +1,4 @@
-"""Tests for the VEuPathDB GAF path in src/prepare_veupathdb.py.
+"""Tests for the GAF GO path in src/prepare_gaf.py.
 
 Offline: a tiny synthetic GAF, id maps and go-basic.obo are written to tmp_path;
 the OBO is pre-seeded in the cache dir so cached_download never hits the network.
@@ -12,14 +12,11 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.prepare_veupathdb import (  # noqa: E402
-    gaf_dir_url,
+from src.prepare_gaf import (  # noqa: E402
     parse_gaf,
-    pick_gaf,
     parse_id_map,
-    prepare_veupathdb,
+    prepare_gaf,
     remap_genes,
-    resolve_gaf_url,
 )
 
 _OBO = """format-version: 1.2
@@ -95,53 +92,6 @@ def _read_gmt(path):
     return out
 
 
-_LISTING = """<html><body><pre>
-<a href="../">../</a>
-<a href="GiardiaDB-68_GintestinalisAssemblageAWB_Curated_GO.gaf">x</a>
-<a href="GiardiaDB-68_GintestinalisAssemblageAWB_GO.gaf">x</a>
-<a href="GiardiaDB-68_GintestinalisAssemblageBGS_GO.gaf">x</a>
-</pre></body></html>"""
-
-
-def test_gaf_dir_url_current_and_pinned():
-    assert gaf_dir_url("GiardiaDB", "GintestinalisAssemblageAWB") == (
-        "https://giardiadb.org/common/downloads/Current_Release/"
-        "GintestinalisAssemblageAWB/gaf/")
-    assert gaf_dir_url("plasmodb", "Pfalciparum3D7", 68) == (
-        "https://plasmodb.org/common/downloads/release-68/Pfalciparum3D7/gaf/")
-
-
-@pytest.mark.parametrize("site,organism,release", [
-    ("nosuchdb", "X", "CURRENT"),
-    ("giardiadb", "../etc", "CURRENT"),
-    ("giardiadb", "X", "68/../x"),
-])
-def test_gaf_dir_url_rejects_bad_input(site, organism, release):
-    with pytest.raises(ValueError):
-        gaf_dir_url(site, organism, release)
-
-
-def test_pick_gaf_takes_the_organisms_go_file():
-    assert pick_gaf(_LISTING, "giardiadb", "GintestinalisAssemblageAWB") == (
-        "GiardiaDB-68_GintestinalisAssemblageAWB_GO.gaf")
-
-
-def test_pick_gaf_lists_what_it_saw_when_missing():
-    with pytest.raises(RuntimeError, match="BGS_GO.gaf"):
-        pick_gaf(_LISTING, "giardiadb", "GintestinalisAssemblageAEX")
-
-
-def test_resolve_gaf_url_reads_cached_listing(tmp_path):
-    cache = _cache(tmp_path)
-    _write(os.path.join(cache, "veupathdb_giardiadb_GintestinalisAssemblageAWB_"
-                               "CURRENT_gaf_index.html"), _LISTING)
-    assert resolve_gaf_url("giardiadb", "GintestinalisAssemblageAWB", "CURRENT",
-                           cache) == (
-        "https://giardiadb.org/common/downloads/Current_Release/"
-        "GintestinalisAssemblageAWB/gaf/"
-        "GiardiaDB-68_GintestinalisAssemblageAWB_GO.gaf")
-
-
 @pytest.mark.parametrize("gz", [False, True])
 def test_parse_gaf_drops_not_and_reads_info(tmp_path, gz):
     path = _write(tmp_path / "x.gaf", _GAF, gz=gz)
@@ -174,11 +124,11 @@ def test_remap_genes_errors_when_nothing_maps():
         remap_genes({"GENE_A": {"GO:1"}}, {}, {"OTHER": {"P1"}})
 
 
-def test_prepare_veupathdb_writes_expanded_gmt(tmp_path):
+def test_prepare_gaf_writes_expanded_gmt(tmp_path):
     cache = _cache(tmp_path)
     out = str(tmp_path / "out")
     gaf = _write(tmp_path / "x.gaf", _GAF)
-    prepare_veupathdb("giardiadb", "Unused", out, cache, gaf=gaf)
+    prepare_gaf(gaf, out, cache)
 
     bp = _read_gmt(os.path.join(out, "GO_BP.gmt"))
     # GENE_A's leaf annotation propagates to the root term
@@ -191,12 +141,12 @@ def test_prepare_veupathdb_writes_expanded_gmt(tmp_path):
     assert not os.path.exists(os.path.join(out, "GO_CC.gmt"))
 
 
-def test_prepare_veupathdb_with_id_map(tmp_path):
+def test_prepare_gaf_with_id_map(tmp_path):
     cache = _cache(tmp_path)
     out = str(tmp_path / "out")
     gaf = _write(tmp_path / "x.gaf", _GAF)
     ft = _write(tmp_path / "ft.txt.gz", _FEATURE_TABLE, gz=True)
-    prepare_veupathdb("giardiadb", "Unused", out, cache, gaf=gaf, id_map=ft)
+    prepare_gaf(gaf, out, cache, id_map=ft)
 
     bp = _read_gmt(os.path.join(out, "GO_BP.gmt"))
     assert bp["GO:0000001"][1] == {"PROT1.1", "PROT1.2"}
@@ -204,3 +154,10 @@ def test_prepare_veupathdb_with_id_map(tmp_path):
         rows = [line.rstrip("\n").split("\t") for line in f]
     assert rows[0] == ["Gene", "gene_name", "protein_name"]
     assert [r[0] for r in rows[1:]] == ["PROT1.1", "PROT1.2"]
+
+
+def test_prepare_gaf_rejects_a_non_gaf_file(tmp_path):
+    cache = _cache(tmp_path)
+    table = _write(tmp_path / "trinotate_go.txt", "GENE_A\tGO:0000002\n")
+    with pytest.raises(RuntimeError, match="GAF"):
+        prepare_gaf(table, str(tmp_path / "out"), cache)

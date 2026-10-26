@@ -275,9 +275,9 @@ as the pathway + module analysis tables were produced.
 |--------|------|----------|----------------|
 | KEGG (non-model) | `src/prepare_kegg_nonmodel.py` | transcriptome + KAAS | KEGG REST tables |
 | GO (non-model)   | `src/prepare_go.py`           | Trinotate GO         | GO term names + hierarchy |
+| GO from GAF      | `src/prepare_gaf.py`          | a downloaded GAF (e.g. GiardiaDB), optional NCBI id map | GO term names + hierarchy |
 | Ensembl/BioMart  | `src/prepare_ensembl.py`      | genome in Ensembl    | BioMart attributes, KEGG map |
 | UniProt          | `src/prepare_uniprot.py`      | proteome in UniProt  | UniProt REST, KEGG map |
-| VEuPathDB        | `src/prepare_veupathdb.py`    | organism on a VEuPathDB site (GiardiaDB, PlasmoDB, ...) | site GO GAF (+ optional NCBI id map); also writes GO GMTs |
 | mummichog model  | `src/prepare_mummichog_model.py` | metabolomics, m/z-based (`mummichog -n`) | KEGG compounds/reactions/pathways |
 | KEGG compound sets | `src/prepare_kegg_compound_sets.py` | metabolomics, ID-based (GMT) | (reuses the model's KEGG source) |
 
@@ -297,9 +297,9 @@ multiomic-annotation-prep/
 │   ├── prepare_kegg_nonmodel.py # KAAS -> KEGG enrichment + annot files
 │   ├── download_go.py           # GO term/hierarchy downloads (cached)
 │   ├── prepare_go.py            # GO table -> expanded GO enrichment files
+│   ├── prepare_gaf.py           # GAF (+ id map) -> expanded GO enrichment files
 │   ├── prepare_ensembl.py       # Ensembl/BioMart path (model organisms)
 │   ├── prepare_uniprot.py       # UniProt path (proteomics)
-│   ├── prepare_veupathdb.py     # VEuPathDB GAF path (GiardiaDB, PlasmoDB, ...)
 │   ├── masses.py                # neutral monoisotopic mass (via mass2chem)
 │   ├── kegg_entities.py         # KEGG source loading (KO -> reactions -> compounds -> pathways)
 │   ├── prepare_mummichog_model.py     # KEGG -> mummichog metabolic model (JSON)
@@ -307,11 +307,11 @@ multiomic-annotation-prep/
 ├── scripts/
 │   ├── run_kegg_nonmodel.py
 │   ├── run_go.py
+│   ├── run_gaf.py
 │   ├── run_mummichog_model.py
 │   ├── run_kegg_compound_sets.py
 │   ├── run_ensembl.py           # Ensembl/BioMart GO (+ KEGG) tables (model organisms)
 │   ├── run_uniprot.py           # UniProt GO (+ KEGG) tables (by taxon id)
-│   ├── run_veupathdb.py         # VEuPathDB GO tables + GMTs (by site/organism)
 │   └── run_all.py               # config-driven, runs selected modules
 ├── config/config.yml
 ├── examples/                    # tiny inputs so it runs out of the box

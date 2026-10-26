@@ -1,0 +1,187 @@
+name: Build gene annotation (RNA / proteomics)
+
+# Manually-dispatched pipeline that turns a project's committed annotation
+# inputs into the gene-based enrichment files multiomic-core reads, and
+# publishes them as a dated, immutable GitHub Release:
+#
+#   RNA        -> modes.rna.enrichment.annotation_dir   (the .tab tables)
+#   proteomics -> modes.proteomics.pathway.gmt_file     (the .gmt files)
+#
+# Both are built from the same inputs; only the release tag and notes differ.
+# These files are keyed on the project's own IDs (genes, transcripts or
+# proteins), so the workflow is fed the project's files rather than an
+# organism code:
+#
+#   1. Upload the inputs to  annotation_inputs/<project>/  (Add file ->
+#      Upload files on GitHub). Filenames must be exactly:
+#        query.ko.txt      KAAS output (id<TAB>KO)              -> KEGG
+#        trinotate_go.txt  per-id GO table (id<TAB>GO ids)      -> GO
+#        go.gaf            GO Annotation File (e.g. GiardiaDB)  -> GO
+#        id_map.txt[.gz]   optional, re-keys go.gaf ids: an NCBI
+#                          *_feature_table.txt(.gz) or a 2-col TSV
+#      At least one of query.ko.txt / trinotate_go.txt / go.gaf is needed;
+#      trinotate_go.txt and go.gaf are alternatives (not both).
+#   2. Run this workflow with that <project> name and the omics it is for.
+#
+# It builds on a GitHub-hosted runner (open internet -> rest.kegg.jp +
+# purl.obolibrary.org reachable). GAFs from VEuPathDB sites need a logged-in
+# browser to download, which is why they are committed rather than fetched.
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Folder name under annotation_inputs/ holding the input files"
+        type: string
+        required: true
+      omics:
+        description: "Which pipeline the files are for (sets the release tag + notes)"
+        type: choice
+        options: [rna, proteomics]
+        default: rna
+      date:
+        description: "Release date stamp YYYYMMDD (empty = today, UTC)"
+        type: string
+        default: ""
+      strip_isoform:
+        description: "[rna] Strip _iN isoform suffixes from KAAS ids to gene level (ignored for proteomics)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write   # required to create Releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT: ${{ inputs.project }}
+      OMICS: ${{ inputs.omics }}
+      IN_DATE: ${{ inputs.date }}
+      STRIP: ${{ inputs.strip_isoform }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests pyyaml
+
+      - name: Validate inputs
+        run: |
+          # project is used to build a path; restrict to safe characters.
+          if ! printf '%s' "$PROJECT" | grep -Eq '^[A-Za-z0-9_-]+$'; then
+            echo "::error::project must be letters/digits/underscore/hyphen only (got '$PROJECT')."
+            exit 1
+          fi
+          if [ -n "$IN_DATE" ] && ! printf '%s' "$IN_DATE" | grep -Eq '^[0-9]{8}$'; then
+            echo "::error::date must be YYYYMMDD (got '$IN_DATE')."
+            exit 1
+          fi
+          in_dir="annotation_inputs/$PROJECT"
+          if [ ! -d "$in_dir" ]; then
+            echo "::error::Folder $in_dir not found. Upload query.ko.txt, trinotate_go.txt and/or go.gaf there first (Add file -> Upload files)."
+            exit 1
+          fi
+          if [ ! -f "$in_dir/query.ko.txt" ] && [ ! -f "$in_dir/trinotate_go.txt" ] && [ ! -f "$in_dir/go.gaf" ]; then
+            echo "::error::$in_dir has none of query.ko.txt, trinotate_go.txt, go.gaf."
+            exit 1
+          fi
+          if [ -f "$in_dir/trinotate_go.txt" ] && [ -f "$in_dir/go.gaf" ]; then
+            echo "::error::$in_dir has both trinotate_go.txt and go.gaf -- keep only the GO source you want."
+            exit 1
+          fi
+          if [ -f "$in_dir/id_map.txt" ] && [ -f "$in_dir/id_map.txt.gz" ]; then
+            echo "::error::$in_dir has both id_map.txt and id_map.txt.gz -- keep one."
+            exit 1
+          fi
+          if { [ -f "$in_dir/id_map.txt" ] || [ -f "$in_dir/id_map.txt.gz" ]; } && [ ! -f "$in_dir/go.gaf" ]; then
+            echo "::warning::id_map is only applied to go.gaf; there is no go.gaf in $in_dir, so it is ignored."
+          fi
+
+      - name: Build annotation files
+        run: |
+          in_dir="annotation_inputs/$PROJECT"
+          out="annotation_out"
+          mkdir -p "$out"
+
+          if [ -f "$in_dir/query.ko.txt" ]; then
+            extra=""
+            # Protein ids never carry Trinity isoform suffixes; stripping is RNA-only.
+            if [ "$OMICS" = "proteomics" ] || [ "$STRIP" = "false" ]; then
+              extra="--no-strip-isoform"
+            fi
+            python scripts/run_kegg_nonmodel.py --kaas "$in_dir/query.ko.txt" \
+              --out "$out" --cache data $extra
+          else
+            echo "::warning::no query.ko.txt in $in_dir -- skipping KEGG"
+          fi
+
+          if [ -f "$in_dir/trinotate_go.txt" ]; then
+            python scripts/run_go.py --go-table "$in_dir/trinotate_go.txt" \
+              --out "$out" --cache data
+          elif [ -f "$in_dir/go.gaf" ]; then
+            map_args=()
+            for m in "$in_dir/id_map.txt" "$in_dir/id_map.txt.gz"; do
+              [ -f "$m" ] && map_args=(--id-map "$m")
+            done
+            python scripts/run_gaf.py --gaf "$in_dir/go.gaf" "${map_args[@]}" \
+              --out "$out" --cache data
+          else
+            echo "::warning::no trinotate_go.txt or go.gaf in $in_dir -- skipping GO"
+          fi
+
+          echo "== built files =="
+          ls -la "$out"
+
+      - name: Publish Release
+        run: |
+          date="$IN_DATE"
+          [ -z "$date" ] && date="$(date -u +%Y%m%d)"
+          # rna keeps its historical tag prefix so existing release names stay stable.
+          if [ "$OMICS" = "proteomics" ]; then prefix="prot_annot"; else prefix="rna_annot"; fi
+          tag="${prefix}_${PROJECT}_${date}"
+          out="annotation_out"
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists -- bump the date input (artifacts are immutable)."
+            exit 1
+          fi
+
+          shopt -s nullglob
+          ( cd "$out" && files=(*.tab *.gmt) && printf '%s\n' "${files[@]}" ) > files.txt
+          mapfile -t built < files.txt
+          if [ "${#built[@]}" -eq 0 ]; then
+            echo "::error::No .tab/.gmt files were built -- nothing to publish."
+            exit 1
+          fi
+
+          zip="${tag}.zip"
+          ( cd "$out" && zip -r "../$zip" . )
+
+          # sha256 checksums so a project can pin {url, sha256} for reproducible,
+          # verified fetches (the zip for annotation_ref, each file individually).
+          ( sha256sum "$zip"; cd "$out" && sha256sum "${built[@]}" ) > SHA256SUMS.txt
+          echo "== SHA256SUMS =="; cat SHA256SUMS.txt
+
+          if [ "$OMICS" = "proteomics" ]; then
+            usage="Proteomics: download the GO_*.gmt (and KEGG_pathway.gmt) files into your project
+          and list them under modes.proteomics.pathway.gmt_file. Set
+          modes.proteomics.annotation.skip_annotation: true when the ids are the raw
+          Protein.Group ids (no remapping to gene symbols)."
+          else
+            usage="RNA: download ${zip} and unzip into your RNA project's annotation_dir, then point
+          modes.rna.enrichment.annotation_dir at that folder."
+          fi
+
+          gh release create "$tag" "$zip" "${built[@]/#/$out/}" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$tag" \
+            --notes "Gene-based enrichment annotation (${OMICS}) for project '${PROJECT}'.
+          ${usage}
+          For a reproducible, verified fetch, pin {url, sha256} from SHA256SUMS.txt.
+          NOTE: these files are keyed on the input ids -- they must match the ids in your data."
+          echo "Published $tag"

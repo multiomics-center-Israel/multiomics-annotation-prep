@@ -1,95 +1,19 @@
-"""VEuPathDB path (GiardiaDB, PlasmoDB, ToxoDB, ...) -- GO from the site's GAF.
+"""GO from a GAF file (GO Annotation File, e.g. downloaded from GiardiaDB/VEuPathDB).
 
-Organisms hosted by VEuPathDB are usually absent from Ensembl/UniProt in a form
-whose IDs match a project (e.g. Giardia's GL50803_* locus tags), but each site
-publishes a per-organism GO annotation file (GAF). This module downloads it,
+Organism databases such as the VEuPathDB sites publish per-organism GO
+annotation as GAF, but downloads need a logged-in browser session, so the file
+is fetched by hand and committed as a project input. This module parses it,
 optionally re-keys its gene ids onto the project's id space (e.g. the NCBI
-protein accessions a DIA-NN FASTA carries), and writes the same GO tables and
-GMTs as the other GO paths via ``prepare_go.write_go_sets``.
+protein accessions a proteomics FASTA carries), and writes the same GO tables
+and GMTs as the other GO paths via ``prepare_go.write_go_sets``.
 """
 
 import gzip
 import os
-import re
 from collections import defaultdict
-from urllib.parse import urlparse
 
 from .prepare_go import write_go_sets
-from .utils import cached_download, log_msg, write_tab
-
-# lower-case host label -> the capitalised project name used in file names
-SITES = {
-    "amoebadb": "AmoebaDB",
-    "cryptodb": "CryptoDB",
-    "fungidb": "FungiDB",
-    "giardiadb": "GiardiaDB",
-    "hostdb": "HostDB",
-    "microsporidiadb": "MicrosporidiaDB",
-    "piroplasmadb": "PiroplasmaDB",
-    "plasmodb": "PlasmoDB",
-    "toxodb": "ToxoDB",
-    "trichdb": "TrichDB",
-    "tritrypdb": "TriTrypDB",
-    "vectorbase": "VectorBase",
-}
-
-_SAFE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
-
-
-def gaf_dir_url(site, organism, release="CURRENT"):
-    """Build the VEuPathDB download directory that holds an organism's GO GAF.
-
-    ``release`` is ``CURRENT`` (moving) or a release number such as ``68``
-    (pinned, reproducible).
-    """
-    key = site.lower()
-    if key not in SITES:
-        raise ValueError(f"Unknown VEuPathDB site '{site}'. "
-                         f"Known: {', '.join(sorted(SITES))}")
-    release = str(release)
-    for label, value in (("organism", organism), ("release", release)):
-        if not _SAFE.match(value):
-            raise ValueError(f"VEuPathDB {label} has unexpected characters: '{value}'")
-    rel_dir = ("Current_Release" if release.upper() == "CURRENT"
-               else f"release-{release}")
-    return f"https://{key}.org/common/downloads/{rel_dir}/{organism}/gaf/"
-
-
-def pick_gaf(listing_html, site, organism):
-    """Pick the organism's GO GAF file name from a directory listing.
-
-    File names carry the actual release number even under Current_Release
-    (``GiardiaDB-68_GintestinalisAssemblageAWB_GO.gaf``), so the name cannot be
-    built up front; it is read from the listing instead.
-    """
-    names = sorted(set(re.findall(r'href="([^"/?]+\.gaf(?:\.gz)?)"', listing_html)))
-    want = re.compile(rf"^{re.escape(SITES[site.lower()])}-[^_]+_"
-                      rf"{re.escape(organism)}_GO\.gaf(?:\.gz)?$")
-    hits = [n for n in names if want.match(n)]
-    if not hits:
-        raise RuntimeError(f"No {organism} GO GAF in the VEuPathDB listing; "
-                           f"files found: {', '.join(names) or 'none'}")
-    return hits[-1]
-
-
-def resolve_gaf_url(site, organism, release, cache_dir, refresh=False):
-    """Return the full URL of an organism's GO GAF by reading its directory."""
-    dir_url = gaf_dir_url(site, organism, release)
-    index = cached_download(
-        dir_url, f"veupathdb_{site.lower()}_{organism}_{release}_gaf_index.html",
-        cache_dir, refresh)
-    with open(index) as f:
-        name = pick_gaf(f.read(), site, organism)
-    log_msg("VEuPathDB GAF: ", name)
-    return dir_url + name
-
-
-def _fetch(src, cache_dir, refresh):
-    """Return a local path for *src*: downloaded (cached) if a URL, else as-is."""
-    if re.match(r"^https?://", src):
-        name = os.path.basename(urlparse(src).path) or "download"
-        return cached_download(src, name, cache_dir, refresh)
-    return src
+from .utils import log_msg, write_tab
 
 
 def _open_text(path):
@@ -188,24 +112,21 @@ def remap_genes(gene2go, gene_info, id_map):
     return dict(new_go), new_info
 
 
-def prepare_veupathdb(site, organism, out_dir, cache_dir, release="CURRENT",
-                      gaf=None, id_map=None, expand=True, refresh=False):
-    """Write GO tables + GMTs (and Annotation.tab) for a VEuPathDB organism.
+def prepare_gaf(gaf, out_dir, cache_dir, id_map=None, expand=True, refresh=False):
+    """Write GO tables + GMTs (and Annotation.tab) from a GAF file.
 
-    gaf:    optional path or URL overriding the GAF built from site/organism.
-    id_map: optional path or URL of an id map (see ``parse_id_map``) that
-            re-keys the GAF gene ids onto the project's id space.
+    gaf:    path to the GAF (plain or .gz).
+    id_map: optional path of an id map (see ``parse_id_map``) that re-keys the
+            GAF gene ids onto the project's id space.
+    cache_dir / refresh: where go-basic.obo is cached, and whether to refetch it.
     """
-    src = gaf or resolve_gaf_url(site, organism, release, cache_dir, refresh)
-    gaf_path = _fetch(src, cache_dir, refresh)
-    gene2go, gene_info = parse_gaf(gaf_path)
+    gene2go, gene_info = parse_gaf(gaf)
     log_msg("GAF: ", len(gene2go), " genes with GO annotations")
     if not gene2go:
-        raise RuntimeError(f"No GO annotations parsed from {src}")
+        raise RuntimeError(f"No GO annotations parsed from {gaf} -- is it a GAF file?")
 
     if id_map:
-        gene2go, gene_info = remap_genes(
-            gene2go, gene_info, parse_id_map(_fetch(id_map, cache_dir, refresh)))
+        gene2go, gene_info = remap_genes(gene2go, gene_info, parse_id_map(id_map))
         log_msg("after id mapping: ", len(gene2go), " ids with GO annotations")
 
     annot_rows = [(g, *gene_info.get(g, ("", ""))) for g in sorted(gene2go)]

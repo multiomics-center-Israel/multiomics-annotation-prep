@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""CLI wrapper: GO annotation for a VEuPathDB organism (GiardiaDB, PlasmoDB, ...).
+"""CLI wrapper: GO enrichment files from a GAF (e.g. downloaded from GiardiaDB).
 
-Downloads the organism's GO GAF from its VEuPathDB site and writes
-GO2gene_{BP,MF,CC}.tab + GO2name_{BP,MF,CC}.tab + GO_{BP,MF,CC}.gmt
+Writes GO2gene_{BP,MF,CC}.tab + GO2name_{BP,MF,CC}.tab + GO_{BP,MF,CC}.gmt
 (hierarchy-expanded) and a descriptive Annotation.tab. With --id-map the gene
 ids are re-keyed (e.g. Giardia locus tags -> the NCBI protein accessions a
 proteomics FASTA uses). Light deps (requests + pyyaml).
@@ -13,26 +12,17 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.prepare_veupathdb import SITES, prepare_veupathdb
+from src.prepare_gaf import prepare_gaf
 from src.utils import log_msg
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Prepare GO annotation tables + GMTs from a VEuPathDB GAF")
-    parser.add_argument("--site", required=True, choices=sorted(SITES),
-                        help="VEuPathDB site, e.g. giardiadb")
-    parser.add_argument("--organism", required=True,
-                        help="Organism as named in the site's download tree, "
-                             "e.g. GintestinalisAssemblageAWB")
-    parser.add_argument("--release", default="CURRENT",
-                        help="VEuPathDB release number to pin (e.g. 68); "
-                             "default: CURRENT")
-    parser.add_argument("--gaf", default=None,
-                        help="Path or URL of a GAF to use instead of the one "
-                             "built from --site/--organism/--release")
+        description="Prepare GO enrichment files (tables + GMTs) from a GAF")
+    parser.add_argument("--gaf", required=True,
+                        help="Path to the GAF file (plain or .gz)")
     parser.add_argument("--id-map", default=None,
-                        help="Path or URL of an id map: an NCBI *_feature_table.txt(.gz) "
+                        help="Optional id map: an NCBI *_feature_table.txt(.gz) "
                              "(locus_tag -> protein accession) or a two-column TSV "
                              "(GAF gene id -> project id)")
     parser.add_argument("--out", default="results",
@@ -45,14 +35,11 @@ def main():
                         help="Force re-download of cached files")
     args = parser.parse_args()
 
-    log_msg("=== VEuPathDB annotation ===")
-    prepare_veupathdb(
-        site=args.site,
-        organism=args.organism,
+    log_msg("=== GO annotation (GAF) ===")
+    prepare_gaf(
+        gaf=args.gaf,
         out_dir=args.out,
         cache_dir=args.cache,
-        release=args.release,
-        gaf=args.gaf,
         id_map=args.id_map,
         expand=not args.no_expand,
         refresh=args.refresh,

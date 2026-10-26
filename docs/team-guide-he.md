@@ -180,7 +180,7 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 מריצים את שניהם עם אותו `--out`, מקבלים את 8 הקבצים בתיקייה אחת, ומכוונים אליה את `annotation_dir`.
 
-**אוטומטי (workflow):** אפשר גם דרך GitHub Actions — **Build RNA annotation tables**. מעלים את `query.ko.txt` ו/או `trinotate_go.txt` ל‑`rna_inputs/<project>/` (Add file → Upload files), מריצים את ה‑workflow עם שם הפרויקט, ומקבלים Release `rna_annot_<project>_<date>` עם קבצי ה‑annotation (+ zip). מורידים, פורסים לתיקייה, ומכוונים אליה את `annotation_dir`. (הדגל `strip_isoform` שם — כמו הגוצ'ה למטה.)
+**אוטומטי (workflow):** אפשר גם דרך GitHub Actions — **Build gene annotation (RNA / proteomics)**. מעלים את `query.ko.txt` ו/או `trinotate_go.txt` (או `go.gaf`, ראו למטה) ל‑`annotation_inputs/<project>/` (Add file → Upload files), מריצים את ה‑workflow עם שם הפרויקט ו‑`omics: rna`, ומקבלים Release `rna_annot_<project>_<date>` עם קבצי ה‑annotation (+ zip). מורידים, פורסים לתיקייה, ומכוונים אליה את `annotation_dir`. (הדגל `strip_isoform` שם — כמו הגוצ'ה למטה.)
 
 > ⚠️ **מזהי הגנים חייבים להתאים ל‑counts.** ה‑loader (`R/core/09_enrichment.R`) בודק חפיפה בין הגנים בטבלאות למזהי הגנים במטריצת ה‑counts, ומזהיר אם החפיפה <5% (*"Check that gene ID types match"*). לכן הטבלאות נבנות מ‑KAAS + Trinotate של **אותו** פרויקט — כדי שמרחב ה‑IDs יהיה זהה.
 
@@ -211,7 +211,14 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 - פייפליין: Trinity → TransDecoder → חיפושי הומולוגיה → טעינה ל‑SQLite → `Trinotate --report`.
 - חילוץ GO: הסקריפט `extract_GO_assignments_from_Trinotate_xls.pl` נותן `gene ⇥ GO`. ה‑parser של `run_go.py` עמיד לפורמט Trinotate המלא (מחלץ `GO:\d{7}`).
 
-**סדר הפעולות:** Trinity → TransDecoder → (KAAS + Trinotate במקביל) → שני הקבצים → העלאה ל‑`rna_inputs/<project>/` → הרצת ה‑workflow.
+**סדר הפעולות:** Trinity → TransDecoder → (KAAS + Trinotate במקביל) → שני הקבצים → העלאה ל‑`annotation_inputs/<project>/` → הרצת ה‑workflow.
+
+**GAF מאתר אורגניזם (למשל GiardiaDB / VEuPathDB) → `go.gaf` (GO).** אתרי VEuPathDB מפרסמים קובץ GO לכל אורגניזם, אבל ההורדה דורשת התחברות לאתר, ולכן מורידים ידנית ומעלים:
+- מתחברים לאתר, מורידים את קובץ ה‑GO GAF של האורגניזם, ומשנים שם ל‑`go.gaf`.
+- אם המזהים בנתונים שונים ממזהי האתר (למשל חלבונים `KAE…` מ‑NCBI מול locus tags `GL50803_…`), מעלים גם `id_map.txt` (או `id_map.txt.gz`): קובץ `*_feature_table.txt.gz` של ה‑assembly מ‑NCBI (ממפה `locus_tag` → `product_accession`), או טבלה בשתי עמודות `מזהה_ב‑GAF ⇥ מזהה_בנתונים`.
+- `go.gaf` ו‑`trinotate_go.txt` הם חלופות — לא שניהם באותה תיקייה.
+
+**לחלבונים:** מריצים את אותו workflow עם `omics: proteomics`. מקבלים Release `prot_annot_<project>_<date>`, ומכוונים את `modes.proteomics.pathway.gmt_file` לקבצי `GO_*.gmt` (ו‑`KEGG_pathway.gmt`). אם ה‑GMT ממופתח ל‑Protein.Group כמו שהוא — `skip_annotation: true`.
 
 ### ב. מודל — גנום ב‑Ensembl או פרוטאום ב‑UniProt
 
@@ -219,9 +226,8 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 - **Ensembl / BioMart** (`run_ensembl.py`) — לפי Ensembl gene ID. דורש `pybiomart`. ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
 - **UniProt** (`run_uniprot.py`) — לפי `taxon_id` (Swiss-Prot/reviewed), ממופתח ל‑UniProt accessions.
-- **VEuPathDB** (`run_veupathdb.py`) — קובץ ה‑GO GAF של אורגניזם מאתר VEuPathDB (GiardiaDB, PlasmoDB, ToxoDB…), ממופתח למזהי הגנים של האתר, או למזהים אחרים דרך `id_map_url` (למשל feature table של NCBI → protein accessions). כותב גם `GO_{BP,MF,CC}.gmt` לפייפליין החלבונים (`modes.proteomics.pathway.gmt_file`).
 
-**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot|veupathdb`, ממלאים `dataset` (Ensembl; ב‑veupathdb: `site/Organism[@release]`, למשל `giardiadb/GintestinalisAssemblageAWB`) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
+**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot`, ממלאים `dataset` (Ensembl) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
 
 ### התאמת רמת ה‑ID (חוזר בכל מסלול)
 

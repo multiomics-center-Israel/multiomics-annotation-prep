@@ -1,21 +1,14 @@
 name: Build model-organism annotation
 
-# Manually-dispatched pipeline for an organism with a public reference
-# annotation (Ensembl, UniProt or a VEuPathDB site). It downloads GO -- and
-# optionally KEGG -- annotation directly (no KAAS/Trinotate), producing the
-# gene-based tables the RNA pipeline reads from annotation_dir (and, for
-# veupathdb, GO GMTs for the proteomics pipeline's gmt_file), and publishes them
-# as a dated Release.
+# Manually-dispatched pipeline for a MODEL organism (one with a reference genome
+# or a UniProt proteome). It downloads GO -- and optionally KEGG -- annotation
+# directly (no KAAS/Trinotate), producing the gene-based tables the RNA pipeline
+# reads from annotation_dir, and publishes them as a dated Release.
 #
 #   source: ensembl  -> Ensembl/BioMart, keyed on Ensembl gene IDs (needs a
 #                        dataset; pick the right mart/host for the division).
 #   source: uniprot  -> UniProt REST, keyed on UniProt accessions (needs a
 #                        taxon id).
-#   source: veupathdb -> the organism's GO GAF from a VEuPathDB site (GiardiaDB,
-#                        PlasmoDB, ToxoDB, ...), keyed on the site's gene ids,
-#                        or re-keyed via id_map_url (e.g. an NCBI feature table
-#                        -> protein accessions). dataset = site/Organism[@release],
-#                        e.g. giardiadb/GintestinalisAssemblageAWB@68.
 #
 # Output tables (GO2gene_{BP,MF,CC}.tab + GO2name_{BP,MF,CC}.tab, hierarchy-
 # expanded; KEGG_pathway2gene/2name.tab when kegg_org is set) drop straight into
@@ -28,14 +21,14 @@ on:
       source:
         description: "Annotation source"
         type: choice
-        options: [ensembl, uniprot, veupathdb]
+        options: [ensembl, uniprot]
         default: ensembl
       label:
         description: "Short label for the release tag/stem (e.g. athaliana, cre)"
         type: string
         required: true
       dataset:
-        description: "[ensembl] BioMart dataset, e.g. athaliana_eg_gene | [veupathdb] site/Organism[@release], e.g. giardiadb/GintestinalisAssemblageAWB (required for both)"
+        description: "[ensembl] BioMart dataset, e.g. athaliana_eg_gene (required for ensembl)"
         type: string
         default: ""
       mart:
@@ -54,12 +47,8 @@ on:
         description: "[uniprot] Swiss-Prot (reviewed) only"
         type: boolean
         default: true
-      id_map_url:
-        description: "[veupathdb] Optional URL of an NCBI *_feature_table.txt.gz or a 2-col TSV to re-key gene ids (e.g. locus tag -> protein accession)"
-        type: string
-        default: ""
       kegg_org:
-        description: "[ensembl/uniprot] Optional KEGG organism code -> ALSO build KEGG_pathway tables (e.g. ath, cre)"
+        description: "Optional KEGG organism code -> ALSO build KEGG_pathway tables (e.g. ath, cre)"
         type: string
         default: ""
       date:
@@ -81,7 +70,6 @@ jobs:
       HOST: ${{ inputs.host }}
       TAXON_ID: ${{ inputs.taxon_id }}
       REVIEWED: ${{ inputs.reviewed }}
-      ID_MAP_URL: ${{ inputs.id_map_url }}
       KEGG_ORG: ${{ inputs.kegg_org }}
       IN_DATE: ${{ inputs.date }}
       GH_TOKEN: ${{ github.token }}
@@ -115,18 +103,6 @@ jobs:
             echo "::error::taxon_id is required for source=uniprot."
             exit 1
           fi
-          if [ "$SOURCE" = "veupathdb" ]; then
-            if ! printf '%s' "$DATASET" | grep -Eq '^[A-Za-z]+/[A-Za-z0-9_.-]+(@[A-Za-z0-9]+)?$'; then
-              echo "::error::dataset for source=veupathdb must be site/Organism[@release], e.g. giardiadb/GintestinalisAssemblageAWB (got '$DATASET')."
-              exit 1
-            fi
-            if [ -n "$KEGG_ORG" ]; then
-              echo "::warning::kegg_org is ignored for source=veupathdb (GO only)."
-            fi
-          fi
-          if [ -n "$ID_MAP_URL" ] && [ "$SOURCE" != "veupathdb" ]; then
-            echo "::warning::id_map_url is only used by source=veupathdb; ignoring it."
-          fi
 
       - name: Build annotation tables
         run: |
@@ -137,28 +113,15 @@ jobs:
             [ -n "$HOST" ]     && args+=(--host "$HOST")
             [ -n "$KEGG_ORG" ] && args+=(--kegg-org "$KEGG_ORG")
             python scripts/run_ensembl.py "${args[@]}"
-          elif [ "$SOURCE" = "uniprot" ]; then
+          else
             args=(--taxon-id "$TAXON_ID" --out "$out" --cache data)
             [ "$REVIEWED" = "false" ] && args+=(--no-reviewed)
             [ -n "$KEGG_ORG" ]        && args+=(--kegg-org "$KEGG_ORG")
             python scripts/run_uniprot.py "${args[@]}"
-          else
-            site="${DATASET%%/*}"
-            rest="${DATASET#*/}"
-            organism="${rest%%@*}"
-            release="CURRENT"
-            [ "$rest" != "$organism" ] && release="${rest#*@}"
-            args=(--site "$(printf '%s' "$site" | tr '[:upper:]' '[:lower:]')"
-                  --organism "$organism" --release "$release"
-                  --out "$out" --cache data)
-            [ -n "$ID_MAP_URL" ] && args+=(--id-map "$ID_MAP_URL")
-            python scripts/run_veupathdb.py "${args[@]}"
           fi
           echo "== built files =="
           ls -la "$out"
           ls "$out"/*.tab
-          [ "$SOURCE" = "veupathdb" ] && ls "$out"/*.gmt
-          true
 
       - name: Publish Release
         run: |
@@ -175,23 +138,17 @@ jobs:
           zip="${tag}.zip"
           ( cd "$out" && zip -r "../$zip" . )
 
-          # .gmt files exist only for some sources; attach whatever was built.
-          shopt -s nullglob
-          ( cd "$out" && files=(*.tab *.gmt) && printf '%s\n' "${files[@]}" ) > files.txt
-          mapfile -t built < files.txt
-
           # sha256 checksums so a project can pin {url, sha256} for reproducible,
-          # verified fetches (the zip for annotation_ref, each .tab/.gmt individually).
-          ( sha256sum "$zip"; cd "$out" && sha256sum "${built[@]}" ) > SHA256SUMS.txt
+          # verified fetches (the zip for annotation_ref, each .tab individually).
+          ( sha256sum "$zip"; cd "$out" && sha256sum *.tab ) > SHA256SUMS.txt
           echo "== SHA256SUMS =="; cat SHA256SUMS.txt
 
-          gh release create "$tag" "$zip" "${built[@]/#/$out/}" SHA256SUMS.txt \
+          gh release create "$tag" "$zip" "$out"/*.tab SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "$tag" \
             --notes "GO (and KEGG when kegg_org is set) annotation tables (annotation_dir) from ${SOURCE} for '${LABEL}'.
-          RNA: download ${zip} and unzip into your project's annotation_dir, then point
+          Download ${zip} and unzip into your project's annotation_dir, then point
           modes.rna.enrichment.annotation_dir at that folder.
-          Proteomics (veupathdb): point modes.proteomics.pathway.gmt_file at the GO_*.gmt files.
           For a reproducible, verified fetch, pin {url, sha256} from SHA256SUMS.txt
           (the zip for annotation_ref; the .gmt/.tab individually).
           NOTE: gene IDs are the ${SOURCE} ID space -- they must match your counts' gene IDs."

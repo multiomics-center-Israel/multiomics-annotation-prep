@@ -59,7 +59,7 @@ if all you need is KEGG from `kegg_org`.
 
 | Field | What to enter |
 |---|---|
-| `project` | the folder name from step 1 |
+| `project` | the folder name from step 1. For a `kegg_org`-only build with no folder, any short name (letters, digits, `-`, `_`) — it only names the Release. |
 | `omics` | `rna` or `proteomics` |
 | `kegg_org` | *optional.* A KEGG organism code (e.g. `gla` for Giardia, `cre` for Chlamydomonas). Builds KEGG straight from KEGG's own annotation — **no KAAS needed**. Check the code exists at `https://rest.kegg.jp/list/<code>`. |
 | `ncbi_assembly` | *optional.* An NCBI assembly accession (e.g. `GCA_000002435.2`). Use it when your data uses NCBI protein ids (like `KAE8301220.1`) but the GAF / KEGG use gene names (like `GL50803_0017558`): the Action downloads NCBI's table that links them and translates for you. |
@@ -140,7 +140,7 @@ files needed.
 | `dataset`, `mart`, `host` | Ensembl only. The BioMart dataset (e.g. `athaliana_eg_gene`); for plants/algae/protists also the matching `mart` (e.g. `plants_mart`) and `host` (e.g. `https://plants.ensembl.org`) |
 | `taxon_id` | UniProt only. The NCBI taxon id (e.g. `3702`) |
 | `reviewed` | UniProt only. Ticked = reviewed (Swiss-Prot) entries only |
-| `kegg_org` | *optional.* KEGG organism code to also build KEGG tables |
+| `kegg_org` | *optional.* KEGG organism code to also try to build KEGG tables. Best-effort: if the ids can't be linked to KEGG, the run still succeeds with GO only — check that the Release has `KEGG_pathway2gene.tab` before relying on it. |
 | `date` | leave empty |
 
 **You get:** a Release `<label>_<source>_annot_<date>` with the `GO2gene_*` /
@@ -162,9 +162,9 @@ close relatives and name the real organism as the target.
 |---|---|
 | `organisms` | comma-separated KEGG codes (default `cre,cvr,mng`) |
 | `target_organism` | the organism you actually study, if the codes above are stand-ins (default `Coelastrella sp.`); leave empty if they are the organism itself |
+| `date` | leave empty |
 
 > The Action knows the organism **names** only for `cre`, `cvr` and `mng`. For any other code the files are still built, but the manifest records no organism name. To get it recorded, add the code to the `NAMES` list in `.github/workflows/publish-organism-artifacts.yml` first.
-| `date` | leave empty |
 
 **You get:** one Release per organism, `<code>_kegg_<date>`, containing:
 

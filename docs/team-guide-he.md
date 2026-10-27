@@ -45,7 +45,7 @@
 
 | שדה | מה ממלאים |
 |---|---|
-| `project` | שם התיקייה משלב 1 |
+| `project` | שם התיקייה משלב 1. בבנייה של `kegg_org` בלבד, בלי תיקייה — כל שם קצר (אותיות, ספרות, `-`, `_`); הוא רק נותן שם ל‑Release. |
 | `omics` | `rna` או `proteomics` |
 | `kegg_org` | *אופציונלי.* קוד אורגניזם ב‑KEGG (למשל `gla` ל‑Giardia, `cre` ל‑Chlamydomonas). בונה KEGG ישירות מהאנוטציה של KEGG — **בלי KAAS**. לבדיקה שהקוד קיים: `https://rest.kegg.jp/list/<code>`. |
 | `ncbi_assembly` | *אופציונלי.* מספר assembly ב‑NCBI (למשל `GCA_000002435.2`). משתמשים בו כשבנתונים יש מזהי חלבון של NCBI (כמו `KAE8301220.1`) וב‑GAF / KEGG יש שמות גנים (כמו `GL50803_0017558`): ה‑Action מוריד את הטבלה של NCBI שמקשרת ביניהם ומתרגם לבד. |
@@ -110,7 +110,7 @@ modes:
 | `dataset`, `mart`, `host` | רק Ensembl. ה‑dataset ב‑BioMart (למשל `athaliana_eg_gene`); לצמחים/אצות/פרוטיסטים גם `mart` מתאים (למשל `plants_mart`) ו‑`host` (למשל `https://plants.ensembl.org`) |
 | `taxon_id` | רק UniProt. מספר ה‑taxon ב‑NCBI (למשל `3702`) |
 | `reviewed` | רק UniProt. מסומן = רק רשומות Swiss-Prot |
-| `kegg_org` | *אופציונלי.* קוד KEGG כדי לבנות גם טבלאות KEGG |
+| `kegg_org` | *אופציונלי.* קוד KEGG כדי לנסות לבנות גם טבלאות KEGG. לא מובטח: אם אי אפשר לקשר את המזהים ל‑KEGG, הריצה עדיין מצליחה, רק עם GO — בודקים שיש ב‑Release את `KEGG_pathway2gene.tab` לפני שמסתמכים עליו. |
 | `date` | משאירים ריק |
 
 **מקבלים:** Release בשם `<label>_<source>_annot_<date>` עם **טבלאות `.tab`** של `GO2gene_*` / `GO2name_*` (ו‑KEGG).
@@ -127,9 +127,9 @@ modes:
 |---|---|
 | `organisms` | קודי KEGG מופרדים בפסיק (ברירת מחדל `cre,cvr,mng`) |
 | `target_organism` | האורגניזם שחוקרים בפועל, אם הקודים הם תחליף (ברירת מחדל `Coelastrella sp.`); ריק אם הם האורגניזם עצמו |
+| `date` | משאירים ריק |
 
 > ה‑Action מכיר **שמות** אורגניזמים רק ל‑`cre`, `cvr` ו‑`mng`. לקוד אחר הקבצים נבנים, אבל ב‑manifest לא נרשם שם אורגניזם. כדי שיירשם, מוסיפים קודם את הקוד לרשימת `NAMES` ב‑`.github/workflows/publish-organism-artifacts.yml`.
-| `date` | משאירים ריק |
 
 **מקבלים:** Release לכל אורגניזם, `<code>_kegg_<date>`, ובו מודל ל‑**mummichog** (`.json`), GMT של קבוצות תרכובות להעשרה **מבוססת‑ID** (`.compound_pathway.gmt`), ו‑manifest עם גרסאות ו‑checksums.
 

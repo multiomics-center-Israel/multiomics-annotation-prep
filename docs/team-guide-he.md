@@ -37,7 +37,7 @@
 | `query.ko.txt` | תוצאת KAAS: `מזהה ⇥ KO` בכל שורה | KEGG |
 | `trinotate_go.txt` | טבלת GO: `מזהה ⇥ מזהי GO` (מ‑Trinotate, eggNOG…) | GO |
 | קובץ `.gaf` | קובץ GO מאתר אורגניזם (למשל GiardiaDB). **לא משנים את שם הקובץ** — יש בו את גרסת המאגר, והיא נרשמת ב‑Release. | GO |
-| `id_map.txt` | *אופציונלי*, רק אם צריך לתרגם מזהים: `מזהה_בקובץ ⇥ מזהה_בנתונים` | — |
+| `id_map.txt` | *אופציונלי*, מתרגם מזהים **רק של קובץ ה‑`.gaf` ושל `kegg_org`**: `מזהה_בקובץ ⇥ מזהה_בנתונים`. הוא **לא** משנה את `query.ko.txt` או `trinotate_go.txt` — בהם המזהים חייבים כבר להיות כמו בנתונים. | — |
 
 כללים: `trinotate_go.txt` **או** `.gaf`, לא שניהם; `query.ko.txt` **או** השדה `kegg_org`, לא שניהם. אם כל מה שצריך הוא KEGG מ‑`kegg_org`, אפשר בכלל בלי תיקייה.
 
@@ -51,18 +51,20 @@
 | `ncbi_assembly` | *אופציונלי.* מספר assembly ב‑NCBI (למשל `GCA_000002435.2`). משתמשים בו כשבנתונים יש מזהי חלבון של NCBI (כמו `KAE8301220.1`) וב‑GAF / KEGG יש שמות גנים (כמו `GL50803_0017558`): ה‑Action מוריד את הטבלה של NCBI שמקשרת ביניהם ומתרגם לבד. |
 | `id_label` | *אופציונלי.* מילה קצרה לסוג המזהים, נכנסת לשם ה‑Release (למשל `kae`). מאפשרת שתי בניות של אותו פרויקט באותו יום. ברירת מחדל `ncbi` כשממלאים `ncbi_assembly`. |
 | `date` | משאירים ריק (היום) |
-| `strip_isoform` | רק ל‑RNA: מסומן אם ה‑counts לפי גן (`..._g1`), לא מסומן אם לפי טרנסקריפט (`..._g1_i1`) |
+| `strip_isoform` | רק ל‑RNA, ורק על `query.ko.txt`: מסומן הופך מזהי טרנסקריפט (`..._g1_i1`) למזהי גן (`..._g1`). הוא **לא** משנה את `trinotate_go.txt` — את הקובץ הזה צריך להכין בעצמך באותה רמה כמו ה‑counts. |
 
 ### שלב 3 — מה מקבלים
 
-Release בשם `prot_annot_<project>[_<label>]_<date>` (חלבונים) או `rna_annot_<project>[_<label>]_<date>` (RNA), ובו:
+Release בשם `prot_annot_<project>[_<label>]_<date>` (חלבונים) או `rna_annot_<project>[_<label>]_<date>` (RNA). מה יש בו תלוי במה שנתת:
 
-- `GO_BP.gmt`, `GO_MF.gmt`, `GO_CC.gmt`, `KEGG_pathway.gmt` — קבוצות הגנים
-- `GO2gene_*.tab`, `GO2name_*.tab`, `KEGG_pathway2gene.tab`, `KEGG_pathway2name.tab` — אותו מידע כטבלאות
-- `GO_provenance.json` / `KEGG_provenance.json` — מאיפה הגיע כל קלט (שמות קבצים, גרסאות, checksums)
-- `SHA256SUMS.txt` ו‑zip של הכל
+| נתת | מקבלת |
+|---|---|
+| מקור GO (`trinotate_go.txt` או `.gaf`) | `GO_BP.gmt`, `GO_MF.gmt`, `GO_CC.gmt` + `GO2gene_*.tab` / `GO2name_*.tab` — לכל ענף GO שיש בו אנוטציות (ענף ריק לא נוצר) |
+| מקור KEGG (`query.ko.txt` או `kegg_org`) | `KEGG_pathway.gmt` + `KEGG_pathway2gene.tab` / `KEGG_pathway2name.tab` |
+| קובץ `.gaf` | גם `GO_provenance.json` ו‑`Annotation.tab` |
+| `kegg_org` | גם `KEGG_provenance.json` |
 
-בהערות ה‑Release רשום גם איזה commit ואיזו ריצה בנו אותו.
+בכל Release יש גם `SHA256SUMS.txt`, zip של הכל, והערות עם הקלטים (כולל checksums) וה‑commit והריצה שבנו אותו. לפני שכותבים קונפיג — בודקים את רשימת הקבצים ב‑Release.
 
 ### שלב 4 — משתמשים ב‑`multiomics-core`
 
@@ -125,6 +127,8 @@ modes:
 |---|---|
 | `organisms` | קודי KEGG מופרדים בפסיק (ברירת מחדל `cre,cvr,mng`) |
 | `target_organism` | האורגניזם שחוקרים בפועל, אם הקודים הם תחליף (ברירת מחדל `Coelastrella sp.`); ריק אם הם האורגניזם עצמו |
+
+> ה‑Action מכיר **שמות** אורגניזמים רק ל‑`cre`, `cvr` ו‑`mng`. לקוד אחר הקבצים נבנים, אבל ב‑manifest לא נרשם שם אורגניזם. כדי שיירשם, מוסיפים קודם את הקוד לרשימת `NAMES` ב‑`.github/workflows/publish-organism-artifacts.yml`.
 | `date` | משאירים ריק |
 
 **מקבלים:** Release לכל אורגניזם, `<code>_kegg_<date>`, ובו מודל ל‑**mummichog** (`.json`), GMT של קבוצות תרכובות להעשרה **מבוססת‑ID** (`.compound_pathway.gmt`), ו‑manifest עם גרסאות ו‑checksums.
@@ -143,7 +147,7 @@ Release לא ניתן לדריסה, אז כדי לבנות מחדש באותו �
 
 - **Release הוא קבוע.** הרצה חוזרת של אותו Action באותו יום ובאותו שם נכשלת בכוונה. מוחקים קודם את הישן, או משתמשים ב‑`id_label` / `date` אחר.
 - **רק דבר אחד ידני:** קבצים שדורשים התחברות כדי להוריד (למשל GiardiaDB) או שמגיעים מטופס באתר (KAAS). כל מה שציבורי — KEGG, Gene Ontology, NCBI, Ensembl, UniProt — ה‑Action מוריד לבד.
-- **הכל מתועד.** כל Release מפרט את הקלטים עם checksums, את גרסאות המאגרים, ואת ה‑commit והריצה שבנו אותו — כך שאפשר לשחזר בדיוק ממה נבנתה כל תוצאה.
+- **מה נרשם שונה בין ה‑Actions.** *Build gene annotation* מפרט את הקלטים עם checksums ואת ה‑commit והריצה, ובבנייה מ‑GAF / `kegg_org` גם גרסאות המאגרים בקבצי ה‑provenance. *Build & publish organism artifacts* כותב manifest עם גרסאות ו‑checksums. *Build model-organism annotation* רושם רק checksums של הפלט ואת שם המקור — את ה‑dataset / taxon שבהם השתמשת כדאי לתעד בעצמך.
 
 ---
 

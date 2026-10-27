@@ -49,7 +49,7 @@ after your project). Put in it whichever of these you have:
 | `query.ko.txt` | KAAS result: one line per id, `id <TAB> KO` | KEGG |
 | `trinotate_go.txt` | GO table: `id <TAB> GO ids` (from Trinotate, eggNOG, …) | GO |
 | a `.gaf` file | GO annotation file from an organism database (e.g. GiardiaDB). **Keep the downloaded file name** — it contains the database release, which then appears in the Release record. | GO |
-| `id_map.txt` | *optional*, only if the ids need translating: `id_in_file <TAB> id_in_your_data` | — |
+| `id_map.txt` | *optional*, translates the ids of the **`.gaf` and `kegg_org` sources only**: `id_in_file <TAB> id_in_your_data`. It does **not** touch `query.ko.txt` or `trinotate_go.txt` — those must already use the ids in your data. | — |
 
 Rules: use `trinotate_go.txt` **or** a `.gaf`, not both; use `query.ko.txt`
 **or** the `kegg_org` field below, not both. You can skip the folder entirely
@@ -65,19 +65,24 @@ if all you need is KEGG from `kegg_org`.
 | `ncbi_assembly` | *optional.* An NCBI assembly accession (e.g. `GCA_000002435.2`). Use it when your data uses NCBI protein ids (like `KAE8301220.1`) but the GAF / KEGG use gene names (like `GL50803_0017558`): the Action downloads NCBI's table that links them and translates for you. |
 | `id_label` | *optional.* A short word for the id type, added to the Release name (e.g. `kae`). Lets you keep two builds of the same project on the same day. Defaults to `ncbi` when `ncbi_assembly` is set. |
 | `date` | leave empty (today) |
-| `strip_isoform` | RNA only: leave ticked if your counts are per gene (`..._g1`), untick if per transcript (`..._g1_i1`) |
+| `strip_isoform` | RNA only, and only for `query.ko.txt`: ticked turns transcript ids (`..._g1_i1`) into gene ids (`..._g1`). It does **not** change `trinotate_go.txt` — make that file use the same level as your counts yourself. |
 
 ### Step 3 — what you get
 
 A Release named `prot_annot_<project>[_<label>]_<date>` (proteomics) or
-`rna_annot_<project>[_<label>]_<date>` (RNA), containing:
+`rna_annot_<project>[_<label>]_<date>` (RNA). What is in it depends on what you
+gave it:
 
-- `GO_BP.gmt`, `GO_MF.gmt`, `GO_CC.gmt`, `KEGG_pathway.gmt` — gene sets
-- `GO2gene_*.tab`, `GO2name_*.tab`, `KEGG_pathway2gene.tab`, `KEGG_pathway2name.tab` — the same as tables
-- `GO_provenance.json` / `KEGG_provenance.json` — where every input came from (file names, versions, checksums)
-- `SHA256SUMS.txt` and a zip of everything
+| You gave | You get |
+|---|---|
+| a GO source (`trinotate_go.txt` or `.gaf`) | `GO_BP.gmt`, `GO_MF.gmt`, `GO_CC.gmt` + `GO2gene_*.tab` / `GO2name_*.tab` — one per GO branch that has annotations (a branch with none is skipped) |
+| a KEGG source (`query.ko.txt` or `kegg_org`) | `KEGG_pathway.gmt` + `KEGG_pathway2gene.tab` / `KEGG_pathway2name.tab` |
+| a `.gaf` | also `GO_provenance.json` and `Annotation.tab` |
+| `kegg_org` | also `KEGG_provenance.json` |
 
-The Release notes also record which commit and run built it.
+Every Release also has `SHA256SUMS.txt`, a zip of everything, and notes listing
+the inputs (with checksums) and the commit and run that built it. Check the
+Release's file list before writing your config.
 
 ### Step 4 — use it in `multiomics-core`
 
@@ -157,6 +162,8 @@ close relatives and name the real organism as the target.
 |---|---|
 | `organisms` | comma-separated KEGG codes (default `cre,cvr,mng`) |
 | `target_organism` | the organism you actually study, if the codes above are stand-ins (default `Coelastrella sp.`); leave empty if they are the organism itself |
+
+> The Action knows the organism **names** only for `cre`, `cvr` and `mng`. For any other code the files are still built, but the manifest records no organism name. To get it recorded, add the code to the `NAMES` list in `.github/workflows/publish-organism-artifacts.yml` first.
 | `date` | leave empty |
 
 **You get:** one Release per organism, `<code>_kegg_<date>`, containing:
@@ -199,9 +206,12 @@ first delete it. Enter the Release name(s) in `tags` (comma-separated) and type
 - **Only one thing is manual:** files that need a login to download (e.g.
   GiardiaDB) or that come from a web form (KAAS). Everything public — KEGG,
   Gene Ontology, NCBI, Ensembl, UniProt — is downloaded by the Action itself.
-- **Everything is recorded.** Each Release lists its inputs with checksums, the
-  database versions, and the commit and run that built it, so a result can be
-  traced back to exactly what produced it.
+- **What is recorded differs per Action.** *Build gene annotation* lists its
+  inputs with checksums plus the commit and run, and GAF / `kegg_org` builds
+  add database versions in their provenance files. *Build & publish organism
+  artifacts* writes a manifest with versions and checksums. *Build
+  model-organism annotation* records only the output checksums and the source
+  name — note the dataset / taxon you used yourself.
 
 ---
 

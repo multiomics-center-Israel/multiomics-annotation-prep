@@ -6,6 +6,153 @@
 
 ---
 
+## איזה Action אני צריכה?
+
+לא צריך להריץ קוד. הכל נעשה דרך **GitHub Actions**: ממלאים טופס קצר, מחשב של GitHub מוריד את נתוני הייחוס ובונה את הקבצים, והתוצאה מתפרסמת כ‑**Release** — דף הורדה קבוע ומתוארך — שאליו מפנים את הפייפליין.
+
+| מה אני מנתחת | האורגניזם | ה‑Action |
+|---|---|---|
+| **חלבונים** | כל אורגניזם, כשצריך GO / KEGG לפי מזהי החלבונים שלי (חובה לאורגניזם לא‑מודלי) | [1. Build gene annotation](#1-build-gene-annotation-rna--proteomics) |
+| **RNA‑seq** | לא‑מודלי (טרנסקריפטום de novo, או אורגניזם מאתר כמו GiardiaDB) | [1. Build gene annotation](#1-build-gene-annotation-rna--proteomics) |
+| **RNA‑seq** | מודלי, ב‑Ensembl או ב‑UniProt | [2. Build model-organism annotation](#2-build-model-organism-annotation) |
+| **מטבולומיקה** | כל אורגניזם ש‑KEGG מכיר (או קרוב שלו) | [3. Build & publish organism artifacts](#3-build--publish-organism-artifacts) |
+| — | פרסמתי משהו בטעות | [4. Delete releases](#4-delete-releases) |
+
+> **חלבונים של אורגניזם מודלי** (אדם, עכבר…) בדרך כלל לא צריכים כלום מהריפו הזה: `multiomics-core` טוען GO / KEGG לבד לפי `annotation.organism`.
+
+**איך מריצים כל אחד מהם:** בריפו → לשונית **Actions** → בוחרים את ה‑Action משמאל → **Run workflow** (למעלה מימין) → ממלאים → **Run workflow**. כשהריצה ירוקה, הקבצים נמצאים בדף **Releases** של הריפו.
+
+---
+
+## 1. Build gene annotation (RNA / proteomics)
+
+**מה הוא עושה:** הופך את האנוטציה של הפרויקט שלך לקבוצות GO ו‑KEGG **לפי המזהים שבנתונים שלך** (מזהי גנים ב‑RNA, מזהי חלבונים בפרוטאומיקה).
+
+### שלב 1 — מעלים את הקלט לריפו
+
+יוצרים תיקייה `annotation_inputs/<project>/`. ב‑GitHub: נכנסים ל‑`annotation_inputs` → **Add file → Upload files** → **גוררים תיקייה** בשם הפרויקט (גרירת תיקייה יוצרת אותה). שמים בה את מה שיש:
+
+| קובץ | מה זה | נותן |
+|---|---|---|
+| `query.ko.txt` | תוצאת KAAS: `מזהה ⇥ KO` בכל שורה | KEGG |
+| `trinotate_go.txt` | טבלת GO: `מזהה ⇥ מזהי GO` (מ‑Trinotate, eggNOG…) | GO |
+| קובץ `.gaf` | קובץ GO מאתר אורגניזם (למשל GiardiaDB). **לא משנים את שם הקובץ** — יש בו את גרסת המאגר, והיא נרשמת ב‑Release. | GO |
+| `id_map.txt` | *אופציונלי*, מתרגם מזהים **רק של קובץ ה‑`.gaf` ושל `kegg_org`**: `מזהה_בקובץ ⇥ מזהה_בנתונים`. הוא **לא** משנה את `query.ko.txt` או `trinotate_go.txt` — בהם המזהים חייבים כבר להיות כמו בנתונים. | — |
+
+כללים: `trinotate_go.txt` **או** `.gaf`, לא שניהם; `query.ko.txt` **או** השדה `kegg_org`, לא שניהם. אם כל מה שצריך הוא KEGG מ‑`kegg_org`, אפשר בכלל בלי תיקייה.
+
+### שלב 2 — ממלאים את הטופס
+
+| שדה | מה ממלאים |
+|---|---|
+| `project` | שם התיקייה משלב 1. בבנייה של `kegg_org` בלבד, בלי תיקייה — כל שם קצר (אותיות, ספרות, `-`, `_`); הוא רק נותן שם ל‑Release. |
+| `omics` | `rna` או `proteomics` |
+| `kegg_org` | *אופציונלי.* קוד אורגניזם ב‑KEGG (למשל `gla` ל‑Giardia, `cre` ל‑Chlamydomonas). בונה KEGG ישירות מהאנוטציה של KEGG — **בלי KAAS**. לבדיקה שהקוד קיים: `https://rest.kegg.jp/list/<code>`. |
+| `ncbi_assembly` | *אופציונלי.* מספר assembly ב‑NCBI (למשל `GCA_000002435.2`). משתמשים בו כשבנתונים יש מזהי חלבון של NCBI (כמו `KAE8301220.1`) וב‑GAF / KEGG יש שמות גנים (כמו `GL50803_0017558`): ה‑Action מוריד את הטבלה של NCBI שמקשרת ביניהם ומתרגם לבד. |
+| `id_label` | *אופציונלי.* מילה קצרה לסוג המזהים, נכנסת לשם ה‑Release (למשל `kae`). מאפשרת שתי בניות של אותו פרויקט באותו יום. ברירת מחדל `ncbi` כשממלאים `ncbi_assembly`. |
+| `date` | משאירים ריק (היום) |
+| `strip_isoform` | רק ל‑RNA, ורק על `query.ko.txt`: מסומן הופך מזהי טרנסקריפט (`..._g1_i1`) למזהי גן (`..._g1`). הוא **לא** משנה את `trinotate_go.txt` — את הקובץ הזה צריך להכין בעצמך באותה רמה כמו ה‑counts. |
+
+### שלב 3 — מה מקבלים
+
+Release בשם `prot_annot_<project>[_<label>]_<date>` (חלבונים) או `rna_annot_<project>[_<label>]_<date>` (RNA). מה יש בו תלוי במה שנתת:
+
+| נתת | מקבלת |
+|---|---|
+| מקור GO (`trinotate_go.txt` או `.gaf`) | `GO_BP.gmt`, `GO_MF.gmt`, `GO_CC.gmt` + `GO2gene_*.tab` / `GO2name_*.tab` — לכל ענף GO שיש בו אנוטציות (ענף ריק לא נוצר) |
+| מקור KEGG (`query.ko.txt` או `kegg_org`) | `KEGG_pathway.gmt` + `KEGG_pathway2gene.tab` / `KEGG_pathway2name.tab` |
+| קובץ `.gaf` | גם `GO_provenance.json` ו‑`Annotation.tab` |
+| `kegg_org` | גם `KEGG_provenance.json` |
+
+בכל Release יש גם `SHA256SUMS.txt`, zip של הכל, והערות עם הקלטים (כולל checksums) וה‑commit והריצה שבנו אותו. לפני שכותבים קונפיג — בודקים את רשימת הקבצים ב‑Release.
+
+### שלב 4 — משתמשים ב‑`multiomics-core`
+
+**חלבונים** קוראים את קבצי ה‑`.gmt`. מורידים אותם ל‑`annotation/` בתוך **תיקיית ה‑raw** של הפרויקט (`paths.raw`; הנתיבים היחסיים למטה יחסיים אליה):
+
+```yaml
+modes:
+  proteomics:
+    annotation:
+      organism: "Giardia lamblia"
+      skip_annotation: true        # ה-GMT לפי מזהי Protein.Group כמו שהם
+    pathway:
+      gmt_file:
+        - annotation/GO_BP.gmt
+        - annotation/GO_MF.gmt
+        - annotation/GO_CC.gmt
+        - annotation/KEGG_pathway.gmt
+```
+
+**RNA** קורא את קבצי ה‑`.tab`. פורסים את ה‑zip לתיקייה בפרויקט ומפנים אליה (נתיב יחסי כאן יחסי ל**תיקיית הפרויקט**, `project.dir`):
+
+```yaml
+modes:
+  rna:
+    enrichment:
+      annotation_dir: "data/annotation"   # התיקייה עם קבצי ה-.tab
+```
+
+> ⚠️ **המזהים חייבים להתאים לנתונים.** אם ב‑GMT יש `KAE…` ובנתונים `GL50803_…`, שום דבר לא יתאים וה‑enrichment לא ימצא כלום. אם יש ספק — פותחים GMT, מסתכלים על כמה מזהים, ומשווים לעמודת Protein.Group / gene_id.
+
+**דוגמה — חלבונים של Giardia:** ה‑GAF מ‑GiardiaDB הועלה ל‑`annotation_inputs/giardia/`, וה‑Action הורץ עם `omics: proteomics`, `kegg_org: gla`, `ncbi_assembly: GCA_000002435.2`. התוצאה: GO + KEGG לפי מזהי החלבונים `KAE…` שיש בנתוני הפרוטאומיקה.
+
+---
+
+## 2. Build model-organism annotation
+
+**מה הוא עושה:** לאורגניזם עם גנום ב‑**Ensembl** או פרוטאום ב‑**UniProt** — מוריד GO (ואופציונלית KEGG) ישירות, בלי קבצי קלט.
+
+| שדה | מה ממלאים |
+|---|---|
+| `source` | `ensembl` או `uniprot` |
+| `label` | שם קצר ל‑Release (למשל `athaliana`) |
+| `dataset`, `mart`, `host` | רק Ensembl. ה‑dataset ב‑BioMart (למשל `athaliana_eg_gene`); לכל מה שמחוץ ל‑Ensembl הראשי (צמחים, אצות, פרוטיסטים, פטריות, חסרי חוליות) גם `mart` מתאים (`plants_mart`, `protists_mart`, `fungi_mart`, `metazoa_mart`) ו‑`host` (למשל `https://plants.ensembl.org`, `https://fungi.ensembl.org`) |
+| `taxon_id` | רק UniProt. מספר ה‑taxon ב‑NCBI (למשל `3702`) |
+| `reviewed` | רק UniProt. מסומן = רק רשומות Swiss-Prot |
+| `kegg_org` | *אופציונלי.* קוד KEGG כדי לנסות לבנות גם טבלאות KEGG. לא מובטח: אם אי אפשר לקשר את המזהים ל‑KEGG, הריצה עדיין מצליחה, רק עם GO — בודקים שיש ב‑Release את `KEGG_pathway2gene.tab` לפני שמסתמכים עליו. |
+| `date` | משאירים ריק |
+
+**מקבלים:** Release בשם `<label>_<source>_annot_<date>` עם **טבלאות `.tab`** של `GO2gene_*` / `GO2name_*` (ו‑KEGG) — אם במקור יש אנוטציות לאורגניזם. ריצה יכולה להצליח ועדיין לא לפרסם אף טבלת GO (למשל taxon ב‑UniProt בלי רשומות עם GO תחת הגדרת `reviewed` שבחרת), אז בודקים קודם את רשימת הקבצים ב‑Release.
+
+**משתמשים ב:** פייפליין ה‑**RNA** — פורסים ומגדירים `modes.rna.enrichment.annotation_dir` (כמו ב‑Action 1). המזהים הם Ensembl gene ids או UniProt accessions, ולכן הם חייבים להתאים ל‑counts.
+
+---
+
+## 3. Build & publish organism artifacts
+
+**מה הוא עושה:** בונה קבצי מסלולים למטבולומיקה מ‑KEGG, לקוד אורגניזם אחד או יותר. לאורגניזם ש‑KEGG לא מכיר (למשל *Coelastrella*) משתמשים בקרובים ורושמים את האורגניזם האמיתי כ‑target. הפרטים המלאים — בסעיפים "התמונה הגדולה" ו"מה מריצים" למטה.
+
+| שדה | מה ממלאים |
+|---|---|
+| `organisms` | קודי KEGG מופרדים בפסיק (ברירת מחדל `cre,cvr,mng`) |
+| `target_organism` | האורגניזם שחוקרים בפועל, אם הקודים הם תחליף (ברירת מחדל `Coelastrella sp.`); ריק אם הם האורגניזם עצמו |
+| `date` | משאירים ריק |
+
+> ה‑Action מכיר **שמות** אורגניזמים רק ל‑`cre`, `cvr` ו‑`mng`. לקוד אחר הקבצים נבנים, אבל ב‑manifest לא נרשם שם אורגניזם. כדי שיירשם, מוסיפים קודם את הקוד לרשימת `NAMES` ב‑`.github/workflows/publish-organism-artifacts.yml`.
+
+**מקבלים:** Release לכל אורגניזם, `<code>_kegg_<date>`, ובו מודל ל‑**mummichog** (`.json`), GMT של קבוצות תרכובות להעשרה **מבוססת‑ID** (`.compound_pathway.gmt`), ו‑manifest עם גרסאות ו‑checksums.
+
+**משתמשים ב:** פייפליין ה‑**מטבולומיקה** — `modes.metabolomics.enrichment.gmt_file` (הקובץ שהורד, יחסי ל‑`paths.raw`) ו‑`modes.metabolomics.enrichment.mummichog.model_ref` (URL + sha256 מה‑Release; הפייפליין מוריד ומאמת לבד). דוגמה מלאה בסעיף "הרצת הפייפליין" למטה.
+
+---
+
+## 4. Delete releases
+
+Release לא ניתן לדריסה, אז כדי לבנות מחדש באותו שם מוחקים קודם. ממלאים את שם ה‑Release (או כמה, מופרדים בפסיק) ב‑`tags`, וכותבים `DELETE` ב‑`confirm`. ה‑Release וה‑tag שלו נמחקים.
+
+---
+
+## טוב לדעת
+
+- **Release הוא קבוע.** הרצה חוזרת של אותו Action באותו יום ובאותו שם נכשלת בכוונה. מוחקים קודם את הישן, או (ב‑*Build gene annotation* / *Build model-organism annotation*) משתמשים ב‑`id_label` / `date` אחר. ב‑*Build & publish organism artifacts* משאירים `date` ריק: תאריך מותאם שם כרגע מכשיל את הריצה, אז בונים מחדש ביום אחר או מוחקים את ה‑Release הישן.
+- **רק דבר אחד ידני:** קבצים שדורשים התחברות כדי להוריד (למשל GiardiaDB) או שמגיעים מטופס באתר (KAAS). כל מה שציבורי — KEGG, Gene Ontology, NCBI, Ensembl, UniProt — ה‑Action מוריד לבד.
+- **מה נרשם שונה בין ה‑Actions.** *Build gene annotation* מפרט את הקלטים עם checksums ואת ה‑commit והריצה, ובבנייה מ‑GAF / `kegg_org` גם גרסאות המאגרים בקבצי ה‑provenance. *Build & publish organism artifacts* כותב manifest עם גרסאות ו‑checksums. *Build model-organism annotation* רושם רק checksums של הפלט ואת שם המקור — את ה‑dataset / taxon שבהם השתמשת כדאי לתעד בעצמך.
+
+---
+
+# פרטים נוספים — מטבולומיקה, sha256, ותחזוקה
+
 ## התמונה הגדולה
 
 שני ריפוזיטוריז עובדים יחד. אחד **בונה** קבצי ייחוס לאורגניזם, והשני (הפייפליין) **צורך** אותם. הזרימה תמיד אותו דבר, והקבצים עצמם **לא** נשמרים בתוך ה‑git — הם artifacts שמתפרסמים כ‑GitHub Releases.
@@ -83,7 +230,7 @@ modes:
       gmt_file: "metabolomics/cre_kegg_20260723.compound_pathway.gmt"  # קובץ מקומי
       mummichog:
         enabled: true
-        ionization_mode: positive        # positive | negative
+        ionization_mode: positive        # pos_default | positive | negative
         model_ref:
           url:    "https://github.com/.../releases/download/cre_kegg_20260723/cre_kegg_20260723.json"
           sha256: "344851a4…ed68"        # 64 hex נטו, בלי sha256:
@@ -110,8 +257,8 @@ modes:
 1. **ה‑sha256 — 64 hex נטו, בלי `sha256:`.** ה‑`digest` ב‑GitHub מוצג כ‑`sha256:abc…`. מעתיקים רק את ה‑hex. אחרת: `must be a 64-character hex sha256 digest`.
 2. **`gmt_file` הוא נתיב מקומי — לא URL.** המודל נשלף אוטומטית מ‑URL; ה‑GMT לא. מורידים את הקובץ ומצביעים עליו בנתיב מקומי (מוחלט או יחסי לפרויקט).
 3. **מודל ו‑GMT מאותו אורגניזם.** באותה ריצה, `model_ref` ו‑`gmt_file` צריכים להיות מאותו קוד — אחרת ההעשרה מבוססת‑m/z ומבוססת‑ID מדברות על ביולוגיות שונות.
-4. **`ionization_mode`: `positive` או `negative` בלבד.** ערך לא מוכר (כמו `mixed`) נבלע בשקט ל‑`positive` — בלי שגיאה, אבל בפולריות שאולי לא התכוונת אליה. mummichog מריץ פולריות אחת בכל ריצה.
-5. **עדכון = תאריך חדש, לא דריסה.** ה‑artifacts הם immutable. כדי לרענן (עדכון KEGG / תיקון) מריצים את ה‑workflow עם `date` חדש — נוצר Release חדש, הישן נשאר.
+4. **`ionization_mode`: `pos_default`, `positive` או `negative` בלבד.** ערך לא מוכר (כמו `mixed`) נבלע בשקט ל‑`pos_default` (ברירת המחדל של mummichog) — בלי שגיאה, אבל בפולריות שאולי לא התכוונת אליה. mummichog מריץ פולריות אחת בכל ריצה.
+5. **עדכון = תאריך חדש, לא דריסה.** ה‑artifacts הם immutable. כדי לרענן (עדכון KEGG / תיקון) מריצים את ה‑workflow שוב ביום אחר, עם `date` ריק — נוצר Release חדש, הישן נשאר. (תאריך מותאם ב‑`date` כרגע לא עובד: שלב הבנייה לא מקבל אותו והריצה נכשלת.)
 
 ---
 
@@ -227,10 +374,10 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 
 לא צריך KAAS/Trinotate — מורידים GO ישירות. שני מודולים, אותם קבצי פלט (`GO2gene_{BP,MF,CC}.tab` + `GO2name_…`, מורחבים היררכית → נכנסים לאותו `annotation_dir`):
 
-- **Ensembl / BioMart** (`run_ensembl.py`) — לפי Ensembl gene ID. דורש `pybiomart`. ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
+- **Ensembl / BioMart** (`run_ensembl.py`) — לפי Ensembl gene ID (שאילתה ישירה ל‑BioMart REST, בלי חבילות נוספות). ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
 - **UniProt** (`run_uniprot.py`) — לפי `taxon_id` (Swiss-Prot/reviewed), ממופתח ל‑UniProt accessions.
 
-**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot`, ממלאים `dataset` (Ensembl) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
+**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot`, ממלאים `dataset` (Ensembl) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG, לא מובטח). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
 
 ### התאמת רמת ה‑ID (חוזר בכל מסלול)
 

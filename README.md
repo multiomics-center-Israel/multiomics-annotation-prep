@@ -137,14 +137,17 @@ files needed.
 |---|---|
 | `source` | `ensembl` or `uniprot` |
 | `label` | a short name for the Release (e.g. `athaliana`) |
-| `dataset`, `mart`, `host` | Ensembl only. The BioMart dataset (e.g. `athaliana_eg_gene`); for plants/algae/protists also the matching `mart` (e.g. `plants_mart`) and `host` (e.g. `https://plants.ensembl.org`) |
+| `dataset`, `mart`, `host` | Ensembl only. The BioMart dataset (e.g. `athaliana_eg_gene`); for anything outside main Ensembl (plants, algae, protists, fungi, invertebrates) also the matching `mart` (`plants_mart`, `protists_mart`, `fungi_mart`, `metazoa_mart`) and `host` (e.g. `https://plants.ensembl.org`, `https://fungi.ensembl.org`) |
 | `taxon_id` | UniProt only. The NCBI taxon id (e.g. `3702`) |
 | `reviewed` | UniProt only. Ticked = reviewed (Swiss-Prot) entries only |
 | `kegg_org` | *optional.* KEGG organism code to also try to build KEGG tables. Best-effort: if the ids can't be linked to KEGG, the run still succeeds with GO only — check that the Release has `KEGG_pathway2gene.tab` before relying on it. |
 | `date` | leave empty |
 
-**You get:** a Release `<label>_<source>_annot_<date>` with the `GO2gene_*` /
-`GO2name_*` (and KEGG) **`.tab` tables**.
+**You get:** a Release `<label>_<source>_annot_<date>` with — when the source
+has annotations for your organism — the `GO2gene_*` /
+`GO2name_*` (and KEGG) **`.tab` tables**. A run can succeed and still publish
+no GO tables (e.g. a UniProt taxon with no GO-annotated entries under the chosen
+`reviewed` setting), so check the Release's file list first.
 
 **Use it in:** the **RNA** pipeline — unzip and set
 `modes.rna.enrichment.annotation_dir` to that folder (as in Action 1). Gene ids
@@ -201,8 +204,11 @@ first delete it. Enter the Release name(s) in `tags` (comma-separated) and type
 ## Good to know
 
 - **Releases are permanent.** Running the same Action twice on the same day
-  with the same name fails on purpose. Delete the old Release first, or use a
-  different `id_label` / `date`.
+  with the same name fails on purpose. Delete the old Release first, or (for
+  *Build gene annotation* / *Build model-organism annotation*) use a different
+  `id_label` / `date`. For *Build & publish organism artifacts*, leave `date`
+  empty: a custom date there currently makes the run fail, so rebuild on
+  another day or delete the old Release.
 - **Only one thing is manual:** files that need a login to download (e.g.
   GiardiaDB) or that come from a web form (KAAS). Everything public — KEGG,
   Gene Ontology, NCBI, Ensembl, UniProt — is downloaded by the Action itself.
@@ -468,7 +474,9 @@ the organism codes (default `cre,cvr,mng`), a surrogate `target_organism`
 (default `Coelastrella sp.`), and an optional `date`. Each organism builds on a
 GitHub-hosted runner (open internet → KEGG reachable) and is published as a
 Release via `GITHUB_TOKEN`. Releases are immutable: a re-run on the same date
-fails fast rather than overwriting — bump the `date` for a rebuild. The workflow
+fails fast rather than overwriting — rebuild on a later day (with `date` left
+empty) or delete the old Release; a custom `date` currently fails, because the
+build step does not receive it. The workflow
 tolerates the known flaky `mummichog` colored-map crash (`rescale_color`) as long
 as the pathway + module analysis tables were produced.
 

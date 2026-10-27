@@ -107,13 +107,13 @@ modes:
 |---|---|
 | `source` | `ensembl` או `uniprot` |
 | `label` | שם קצר ל‑Release (למשל `athaliana`) |
-| `dataset`, `mart`, `host` | רק Ensembl. ה‑dataset ב‑BioMart (למשל `athaliana_eg_gene`); לצמחים/אצות/פרוטיסטים גם `mart` מתאים (למשל `plants_mart`) ו‑`host` (למשל `https://plants.ensembl.org`) |
+| `dataset`, `mart`, `host` | רק Ensembl. ה‑dataset ב‑BioMart (למשל `athaliana_eg_gene`); לכל מה שמחוץ ל‑Ensembl הראשי (צמחים, אצות, פרוטיסטים, פטריות, חסרי חוליות) גם `mart` מתאים (`plants_mart`, `protists_mart`, `fungi_mart`, `metazoa_mart`) ו‑`host` (למשל `https://plants.ensembl.org`, `https://fungi.ensembl.org`) |
 | `taxon_id` | רק UniProt. מספר ה‑taxon ב‑NCBI (למשל `3702`) |
 | `reviewed` | רק UniProt. מסומן = רק רשומות Swiss-Prot |
 | `kegg_org` | *אופציונלי.* קוד KEGG כדי לנסות לבנות גם טבלאות KEGG. לא מובטח: אם אי אפשר לקשר את המזהים ל‑KEGG, הריצה עדיין מצליחה, רק עם GO — בודקים שיש ב‑Release את `KEGG_pathway2gene.tab` לפני שמסתמכים עליו. |
 | `date` | משאירים ריק |
 
-**מקבלים:** Release בשם `<label>_<source>_annot_<date>` עם **טבלאות `.tab`** של `GO2gene_*` / `GO2name_*` (ו‑KEGG).
+**מקבלים:** Release בשם `<label>_<source>_annot_<date>` עם **טבלאות `.tab`** של `GO2gene_*` / `GO2name_*` (ו‑KEGG) — אם במקור יש אנוטציות לאורגניזם. ריצה יכולה להצליח ועדיין לא לפרסם אף טבלת GO (למשל taxon ב‑UniProt בלי רשומות עם GO תחת הגדרת `reviewed` שבחרת), אז בודקים קודם את רשימת הקבצים ב‑Release.
 
 **משתמשים ב:** פייפליין ה‑**RNA** — פורסים ומגדירים `modes.rna.enrichment.annotation_dir` (כמו ב‑Action 1). המזהים הם Ensembl gene ids או UniProt accessions, ולכן הם חייבים להתאים ל‑counts.
 
@@ -145,7 +145,7 @@ Release לא ניתן לדריסה, אז כדי לבנות מחדש באותו �
 
 ## טוב לדעת
 
-- **Release הוא קבוע.** הרצה חוזרת של אותו Action באותו יום ובאותו שם נכשלת בכוונה. מוחקים קודם את הישן, או משתמשים ב‑`id_label` / `date` אחר.
+- **Release הוא קבוע.** הרצה חוזרת של אותו Action באותו יום ובאותו שם נכשלת בכוונה. מוחקים קודם את הישן, או (ב‑*Build gene annotation* / *Build model-organism annotation*) משתמשים ב‑`id_label` / `date` אחר. ב‑*Build & publish organism artifacts* משאירים `date` ריק: תאריך מותאם שם כרגע מכשיל את הריצה, אז בונים מחדש ביום אחר או מוחקים את ה‑Release הישן.
 - **רק דבר אחד ידני:** קבצים שדורשים התחברות כדי להוריד (למשל GiardiaDB) או שמגיעים מטופס באתר (KAAS). כל מה שציבורי — KEGG, Gene Ontology, NCBI, Ensembl, UniProt — ה‑Action מוריד לבד.
 - **מה נרשם שונה בין ה‑Actions.** *Build gene annotation* מפרט את הקלטים עם checksums ואת ה‑commit והריצה, ובבנייה מ‑GAF / `kegg_org` גם גרסאות המאגרים בקבצי ה‑provenance. *Build & publish organism artifacts* כותב manifest עם גרסאות ו‑checksums. *Build model-organism annotation* רושם רק checksums של הפלט ואת שם המקור — את ה‑dataset / taxon שבהם השתמשת כדאי לתעד בעצמך.
 
@@ -258,7 +258,7 @@ modes:
 2. **`gmt_file` הוא נתיב מקומי — לא URL.** המודל נשלף אוטומטית מ‑URL; ה‑GMT לא. מורידים את הקובץ ומצביעים עליו בנתיב מקומי (מוחלט או יחסי לפרויקט).
 3. **מודל ו‑GMT מאותו אורגניזם.** באותה ריצה, `model_ref` ו‑`gmt_file` צריכים להיות מאותו קוד — אחרת ההעשרה מבוססת‑m/z ומבוססת‑ID מדברות על ביולוגיות שונות.
 4. **`ionization_mode`: `pos_default`, `positive` או `negative` בלבד.** ערך לא מוכר (כמו `mixed`) נבלע בשקט ל‑`pos_default` (ברירת המחדל של mummichog) — בלי שגיאה, אבל בפולריות שאולי לא התכוונת אליה. mummichog מריץ פולריות אחת בכל ריצה.
-5. **עדכון = תאריך חדש, לא דריסה.** ה‑artifacts הם immutable. כדי לרענן (עדכון KEGG / תיקון) מריצים את ה‑workflow עם `date` חדש — נוצר Release חדש, הישן נשאר.
+5. **עדכון = תאריך חדש, לא דריסה.** ה‑artifacts הם immutable. כדי לרענן (עדכון KEGG / תיקון) מריצים את ה‑workflow שוב ביום אחר, עם `date` ריק — נוצר Release חדש, הישן נשאר. (תאריך מותאם ב‑`date` כרגע לא עובד: שלב הבנייה לא מקבל אותו והריצה נכשלת.)
 
 ---
 
@@ -377,7 +377,7 @@ python scripts/run_go.py --go-table <trinotate_go.txt> --out annot_dir --cache d
 - **Ensembl / BioMart** (`run_ensembl.py`) — לפי Ensembl gene ID (שאילתה ישירה ל‑BioMart REST, בלי חבילות נוספות). ⚠️ בוחרים את חלוקת BioMart הנכונה (`mart: plants_mart` + host מתאים לצמח/אצה, לא ה‑mart הדיפולטי).
 - **UniProt** (`run_uniprot.py`) — לפי `taxon_id` (Swiss-Prot/reviewed), ממופתח ל‑UniProt accessions.
 
-**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot`, ממלאים `dataset` (Ensembl) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
+**workflow ייעודי:** GitHub Actions → **Build model-organism annotation** → בוחרים `source: ensembl|uniprot`, ממלאים `dataset` (Ensembl) או `taxon_id` (UniProt), ואופציונלית `kegg_org` (גם טבלאות KEGG, לא מובטח). מקבלים Release `<label>_<source>_annot_<date>` עם קבצי ה‑annotation. *(או מקומית: `run_ensembl.py` / `run_uniprot.py`, או בלוק config + `run_all.py`.)*
 
 ### התאמת רמת ה‑ID (חוזר בכל מסלול)
 

@@ -17,8 +17,13 @@ Versions are read, never inferred:
   build job. They are not a single KEGG release. Organism-code details stay in
   ``KEGG_provenance.json``.
 
-The optional version queries (KEGG info, BioMart registry) are best-effort: if
-they fail, the value is ``null`` and the build still succeeds. Detailed input
+The KEGG dates and the Ensembl release name come from live queries, so they
+describe the build only when the build fetched its own data in the same run
+(the release workflows: a fresh cache on every runner). They are therefore
+queried only when the caller asks (``query_versions=True``), always re-fetched
+into manifest-only cache files (never the builders' caches, never a stale or
+other-host copy), and best-effort: if they fail, the value is ``null`` and the
+build still succeeds. Without ``query_versions`` they are ``null``. Detailed input
 provenance is not repeated here: inputs are identified by ``builder_git_sha``
 (they are committed) and by the companion ``*_provenance.json`` files, which
 are listed in ``files`` with their sha256.
@@ -30,7 +35,7 @@ import re
 from datetime import datetime, timezone
 
 from .download_go import GO_OBO_URL
-from .download_kegg import download_kegg_info, parse_kegg_info_dates
+from .download_kegg import parse_kegg_info_dates
 from .prepare_ensembl import _virtual_schema_for
 from .prepare_gaf import obo_data_version
 from .utils import cached_download, git_head_sha, log_msg, sha256_file
@@ -81,9 +86,15 @@ def _go_ontology(cache_dir):
 
 
 def kegg_db_dates(cache_dir):
-    """Per-database dates from info/kegg (cached), or None if unavailable."""
+    """Per-database dates from info/kegg, fetched now, or None if unavailable.
+
+    Re-fetched into a manifest-only file: the builders' ``kegg_info_kegg.txt``
+    may be from an earlier run and must not be overwritten here.
+    """
     def query():
-        return parse_kegg_info_dates(download_kegg_info("kegg", cache_dir)) or None
+        path = cached_download("https://rest.kegg.jp/info/kegg",
+                               "manifest_kegg_info.txt", cache_dir, refresh=True)
+        return parse_kegg_info_dates(path) or None
     return _best_effort("KEGG info/kegg", query)
 
 
@@ -103,10 +114,14 @@ def parse_biomart_registry(text, mart):
 
 
 def ensembl_registry_name(host, mart, cache_dir):
-    """Release name the host's BioMart registry reports (best-effort, or None)."""
+    """Release name *host*'s BioMart registry reports now (best-effort, or None).
+
+    Always re-fetched, so the name belongs to this host, not a cached copy.
+    """
     def query():
         url = host.rstrip("/") + "/biomart/martservice?type=registry"
-        path = cached_download(url, "biomart_registry.xml", cache_dir)
+        path = cached_download(url, "manifest_biomart_registry.xml", cache_dir,
+                               refresh=True)
         with open(path, encoding="utf-8", errors="replace") as f:
             return parse_biomart_registry(f.read(), mart)
     return _best_effort("BioMart registry", query)
@@ -114,12 +129,17 @@ def ensembl_registry_name(host, mart, cache_dir):
 
 def build_annotation_manifest(out_dir, cache_dir, release_tag=None, run_url=None,
                               inputs=None, gene_annotation_source=None,
-                              ensembl_host=None, ensembl_mart="ensembl"):
+                              ensembl_host=None, ensembl_mart="ensembl",
+                              kegg_ids_from_gene_annotation=False,
+                              query_versions=False):
     """Build the manifest dict for the files in *out_dir* (see module docstring).
 
     *inputs* is recorded verbatim (the workflow inputs: project / label, ids,
-    organism code, dataset, taxon ...). Version queries run only for sources
-    the built files actually use.
+    organism code, dataset, taxon ...). *kegg_ids_from_gene_annotation* is set
+    by the caller when the build re-keyed the KEGG gene ids through the gene
+    annotation source (prepare_ensembl's Ensembl bridge); the KEGG files then
+    derive from both. Version queries run only with *query_versions* and only
+    for sources the built files actually use.
     """
     if gene_annotation_source not in (None,) + GENE_ANNOTATION_SOURCES:
         raise ValueError(f"unknown gene_annotation_source: {gene_annotation_source!r}")
@@ -128,6 +148,10 @@ def build_annotation_manifest(out_dir, cache_dir, release_tag=None, run_url=None
                    if n != MANIFEST_NAME and os.path.isfile(os.path.join(out_dir, n)))
     files = [{"file": n, "sha256": sha256_file(os.path.join(out_dir, n)),
               "sources": file_sources(n)} for n in names]
+    if kegg_ids_from_gene_annotation and gene_annotation_source:
+        for f in files:
+            if f["sources"] == ["kegg"]:
+                f["sources"] = ["kegg", "gene_annotation"]
     used = {s for f in files for s in f["sources"]}
 
     go_ontology = _go_ontology(cache_dir) if "go_ontology" in used else None
@@ -138,14 +162,15 @@ def build_annotation_manifest(out_dir, cache_dir, release_tag=None, run_url=None
         if gene_annotation_source == "ensembl":
             host = ensembl_host or _ENSEMBL_DEFAULT_HOST
             gene_annotation["registry_host"] = host
-            gene_annotation["registry_display_name"] = ensembl_registry_name(
-                host, ensembl_mart, cache_dir)
+            gene_annotation["registry_display_name"] = (
+                ensembl_registry_name(host, ensembl_mart, cache_dir)
+                if query_versions else None)
         if "GO_provenance.json" in names:
             gene_annotation["details_file"] = "GO_provenance.json"
 
     kegg = None
     if "kegg" in used:
-        kegg = {"kegg_db_dates": kegg_db_dates(cache_dir),
+        kegg = {"kegg_db_dates": kegg_db_dates(cache_dir) if query_versions else None,
                 "details_file": "KEGG_provenance.json"
                 if "KEGG_provenance.json" in names else None}
 

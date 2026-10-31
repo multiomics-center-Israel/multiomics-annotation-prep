@@ -257,14 +257,17 @@ jobs:
           elif [ -n "$GAF" ]; then
             go_src=(--gene-annotation-source gaf)
           fi
+          # The runner's cache is fresh, so the KEGG dates queried now describe
+          # this build (--query-source-versions). Inputs are recorded as
+          # submitted; the derived label and date are in the release tag.
           python scripts/run_annotation_manifest.py --out "$out" --cache data \
             --release-tag "$tag" \
             --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            "${go_src[@]}" \
+            "${go_src[@]}" --query-source-versions \
             --input workflow=build-rna-annotation --input "project=$PROJECT" \
-            --input "omics=$OMICS" --input "id_label=$label" \
+            --input "omics=$OMICS" --input "id_label=$ID_LABEL" \
             --input "kegg_org=$KEGG_ORG" --input "ncbi_assembly=$NCBI_ASSEMBLY" \
-            --input "strip_isoform=$STRIP"
+            --input "date=$IN_DATE" --input "strip_isoform=$STRIP"
           built+=(manifest.json)
 
           zip="${tag}.zip"

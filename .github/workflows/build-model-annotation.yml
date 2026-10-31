@@ -140,15 +140,22 @@ jobs:
           # host's BioMart registry reports) and the KEGG database dates. Written
           # into the output folder so it ships inside the zip; optional version
           # queries record null instead of failing the build.
+          # The runner's cache is fresh, so the versions queried now describe
+          # this build (--query-source-versions). The Ensembl build re-keys KEGG
+          # gene ids through its BioMart cross-reference (run_ensembl's default
+          # --id-source ensembl), so its KEGG files also derive from Ensembl.
+          kegg_args=()
+          [ "$SOURCE" = "ensembl" ] && kegg_args=(--kegg-ids-from-gene-annotation)
           python scripts/run_annotation_manifest.py --out "$out" --cache data \
             --release-tag "$tag" \
             --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            --gene-annotation-source "$SOURCE" \
-            --ensembl-host "$HOST" --ensembl-mart "$MART" \
+            --gene-annotation-source "$SOURCE" "${kegg_args[@]}" \
+            --ensembl-host "$HOST" --ensembl-mart "$MART" --query-source-versions \
             --input workflow=build-model-annotation --input "source=$SOURCE" \
             --input "label=$LABEL" --input "dataset=$DATASET" --input "mart=$MART" \
             --input "host=$HOST" --input "taxon_id=$TAXON_ID" \
-            --input "reviewed=$REVIEWED" --input "kegg_org=$KEGG_ORG"
+            --input "reviewed=$REVIEWED" --input "kegg_org=$KEGG_ORG" \
+            --input "date=$IN_DATE"
 
           zip="${tag}.zip"
           ( cd "$out" && zip -r "../$zip" . )

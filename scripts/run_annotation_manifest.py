@@ -34,6 +34,13 @@ def main():
                         help="[ensembl] BioMart host the build used (default: www.ensembl.org)")
     parser.add_argument("--ensembl-mart", default="ensembl",
                         help="[ensembl] BioMart mart the build used")
+    parser.add_argument("--kegg-ids-from-gene-annotation", action="store_true",
+                        help="The build re-keyed KEGG gene ids through the gene "
+                             "annotation source (Ensembl bridge)")
+    parser.add_argument("--query-source-versions", action="store_true",
+                        help="Query the KEGG database dates and the Ensembl release "
+                             "name now. Use only when the build fetched its data in "
+                             "this same run (fresh cache); otherwise they stay null")
     parser.add_argument("--input", action="append", type=_key_value, default=[],
                         metavar="KEY=VALUE",
                         help="Build input to record verbatim (repeatable)")
@@ -48,6 +55,8 @@ def main():
         gene_annotation_source=args.gene_annotation_source,
         ensembl_host=args.ensembl_host or None,
         ensembl_mart=args.ensembl_mart or "ensembl",
+        kegg_ids_from_gene_annotation=args.kegg_ids_from_gene_annotation,
+        query_versions=args.query_source_versions,
     )
     log_msg("=== Done ===")
 

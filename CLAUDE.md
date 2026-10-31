@@ -65,8 +65,14 @@ It holds:
 Rules:
 
 - Unknown values are `null`, never inferred.
-- The version queries (KEGG `info/kegg`, BioMart registry) are best-effort and
-  must never fail a build.
+- The live version queries (KEGG `info/kegg`, BioMart registry) run only with
+  `--query-source-versions`, which the release workflows pass because each runner
+  starts with an empty cache. They always re-fetch into manifest-only cache files
+  (never a builder's cache) and are best-effort, so they must never fail a
+  build. Without the flag they are `null`.
+- KEGG files list `gene_annotation` as a source only when the caller passes
+  `--kegg-ids-from-gene-annotation` (the Ensembl bridge in
+  `build-model-annotation.yml`).
 - Don't copy `GO_provenance.json` / `KEGG_provenance.json` into the manifest;
   they are named in `details_file` and listed in `files`.
 - multiomic-core reads this file, so treat its field names as a contract.

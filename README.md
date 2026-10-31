@@ -84,6 +84,22 @@ Every Release also has `SHA256SUMS.txt`, a zip of everything, and notes listing
 the inputs (with checksums) and the commit and run that built it. Check the
 Release's file list before writing your config.
 
+Every Release also has a `manifest.json`, inside the zip and as its own file.
+It is the machine-readable record of the build:
+
+- the Release tag, the commit and run that built it, and the Action's inputs;
+- every file with its sha256, and which of the records below it was built from:
+  - `go_ontology`: the `data-version` of the `go-basic.obo` the build used;
+  - `gene_annotation`: where the gene → GO links came from (`trinotate`, `gaf`,
+    `ensembl`, `uniprot`). This is a different resource from the ontology,
+    with its own version, if any;
+  - `kegg`: the per-database dates KEGG reported during the build. These are
+    not a single KEGG release.
+
+A version that could not be read is `null`; nothing is guessed. UniProt
+builds record no UniProt release. GAF and `kegg_org` details stay in
+`GO_provenance.json` / `KEGG_provenance.json`, which the manifest names.
+
 ### Step 4 — use it in `multiomics-core`
 
 **Proteomics** reads the `.gmt` files. Download them into `annotation/` inside
@@ -212,12 +228,15 @@ first delete it. Enter the Release name(s) in `tags` (comma-separated) and type
 - **Only one thing is manual:** files that need a login to download (e.g.
   GiardiaDB) or that come from a web form (KAAS). Everything public — KEGG,
   Gene Ontology, NCBI, Ensembl, UniProt — is downloaded by the Action itself.
-- **What is recorded differs per Action.** *Build gene annotation* lists its
-  inputs with checksums plus the commit and run, and GAF / `kegg_org` builds
-  add database versions in their provenance files. *Build & publish organism
-  artifacts* writes a manifest with versions and checksums. *Build
-  model-organism annotation* records only the output checksums and the source
-  name — note the dataset / taxon you used yourself.
+- **What is recorded differs per Action.** *Build gene annotation* and *Build
+  model-organism annotation* both write `manifest.json` (see Step 3): file
+  checksums, Action inputs, commit and run, the GO ontology version, the gene →
+  GO source and the KEGG database dates. For Ensembl it also has the release
+  name the host's BioMart registry reported at build time (`null` if the query
+  failed). *Build gene annotation*'s notes also list its inputs with checksums,
+  and GAF / `kegg_org` builds add details in their provenance files. *Build &
+  publish organism artifacts* writes its own model manifest with versions and
+  checksums.
 
 ---
 

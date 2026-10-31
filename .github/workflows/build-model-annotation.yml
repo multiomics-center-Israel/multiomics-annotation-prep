@@ -135,15 +135,30 @@ jobs:
             exit 1
           fi
 
+          # manifest.json: every built file with its sha256, plus the GO ontology
+          # version, the gene -> GO source (with the Ensembl release name the
+          # host's BioMart registry reports) and the KEGG database dates. Written
+          # into the output folder so it ships inside the zip; optional version
+          # queries record null instead of failing the build.
+          python scripts/run_annotation_manifest.py --out "$out" --cache data \
+            --release-tag "$tag" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --gene-annotation-source "$SOURCE" \
+            --ensembl-host "$HOST" --ensembl-mart "$MART" \
+            --input workflow=build-model-annotation --input "source=$SOURCE" \
+            --input "label=$LABEL" --input "dataset=$DATASET" --input "mart=$MART" \
+            --input "host=$HOST" --input "taxon_id=$TAXON_ID" \
+            --input "reviewed=$REVIEWED" --input "kegg_org=$KEGG_ORG"
+
           zip="${tag}.zip"
           ( cd "$out" && zip -r "../$zip" . )
 
           # sha256 checksums so a project can pin {url, sha256} for reproducible,
           # verified fetches (the zip for annotation_ref, each .tab individually).
-          ( sha256sum "$zip"; cd "$out" && sha256sum *.tab ) > SHA256SUMS.txt
+          ( sha256sum "$zip"; cd "$out" && sha256sum *.tab manifest.json ) > SHA256SUMS.txt
           echo "== SHA256SUMS =="; cat SHA256SUMS.txt
 
-          gh release create "$tag" "$zip" "$out"/*.tab SHA256SUMS.txt \
+          gh release create "$tag" "$zip" "$out"/*.tab "$out"/manifest.json SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "$tag" \
             --notes "GO (and KEGG when kegg_org is set) annotation tables (annotation_dir) from ${SOURCE} for '${LABEL}'.
@@ -151,5 +166,8 @@ jobs:
           modes.rna.enrichment.annotation_dir at that folder.
           For a reproducible, verified fetch, pin {url, sha256} from SHA256SUMS.txt
           (the zip for annotation_ref; the .gmt/.tab individually).
+          manifest.json (also inside the zip) lists each file's sha256 and the GO ontology
+          version, gene -> GO source and KEGG database dates it was built from, and the
+          builder commit and run.
           NOTE: gene IDs are the ${SOURCE} ID space -- they must match your counts' gene IDs."
           echo "Published $tag"

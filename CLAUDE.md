@@ -45,6 +45,32 @@ All writers are centralized in `src/utils.py` (`write_*` functions).
 | `KEGG_pathway.gmt` | KEGG pathway gene sets |
 | `GO_{BP,MF,CC}.gmt` | GO gene sets per namespace |
 
+### manifest.json (gene-based releases)
+
+`build-rna-annotation.yml` and `build-model-annotation.yml` write
+`manifest.json` into the output folder before zipping
+(`src/annotation_manifest.py`, run by `scripts/run_annotation_manifest.py`).
+It holds:
+
+- `release_tag`, `run_url`, `builder_git_sha`, `build_timestamp_utc`;
+- `inputs`: the Action's inputs, verbatim;
+- `files[]`: `{file, sha256, sources}`, where `sources` names the blocks below
+  that the file derives from;
+- `go_ontology` (same shape as in `GO_provenance.json`): the version of the
+  cached `go-basic.obo`;
+- `gene_annotation`: the gene → GO source, kept **separate from the ontology
+  version**. For Ensembl it adds `registry_host` and `registry_display_name`;
+- `kegg.kegg_db_dates`: per-database dates, **not one KEGG release**.
+
+Rules:
+
+- Unknown values are `null`, never inferred.
+- The version queries (KEGG `info/kegg`, BioMart registry) are best-effort and
+  must never fail a build.
+- Don't copy `GO_provenance.json` / `KEGG_provenance.json` into the manifest;
+  they are named in `details_file` and listed in `files`.
+- multiomic-core reads this file, so treat its field names as a contract.
+
 > **FORMAT RESOLVED:** The `.tab` files follow the Neat_RNA-Seq / Neat_Proteomics
 > (clusterProfiler) convention and are correct for that workflow. `multiomic-core`
 > uses GMT format for custom (non-model) gene sets — both formats are now produced.
@@ -64,6 +90,7 @@ src/
   prepare_uniprot.py       # UniProt REST path (proteomics)                       [secondary]
   prepare_gaf.py           # GO GAF (e.g. GiardiaDB) + optional id map / NCBI assembly -> GO tables + GMTs + provenance
   prepare_kegg_org_sets.py # KEGG organism code -> KEGG tables + KEGG_pathway.gmt + provenance (re-keyable; no KAAS)
+  annotation_manifest.py   # manifest.json for gene-based releases (files + sha256 + source versions)
   id_maps.py               # shared id maps: NCBI feature table by assembly accession, or a committed TSV
   masses.py                # neutral monoisotopic mass (validates formula, delegates to mass2chem)
   kegg_entities.py         # KEGG source loading (load_source: KO->reactions->compounds->pathways); shared, light
@@ -78,6 +105,7 @@ scripts/
   run_uniprot.py           # CLI for the UniProt module (by taxon id)
   run_gaf.py               # CLI for the GAF module
   run_kegg_org_sets.py     # CLI for KEGG organism gene sets
+  run_annotation_manifest.py # CLI: write manifest.json into a built annotation_dir (used by the workflows)
   run_all.py               # config-driven driver (reads config/config.yml)
 .github/workflows/         # workflow_dispatch pipelines: build on a runner + publish a dated GitHub Release
   publish-organism-artifacts.yml # KEGG code -> mummichog model + compound-set GMT (compound-based)

@@ -247,6 +247,29 @@ jobs:
             exit 1
           fi
 
+          # manifest.json: every built file with its sha256, plus the GO ontology
+          # version, the gene -> GO source and the KEGG database dates. Written
+          # into the output folder so it ships inside the zip; optional version
+          # queries record null instead of failing the build.
+          go_src=()
+          if [ -f "annotation_inputs/$PROJECT/trinotate_go.txt" ]; then
+            go_src=(--gene-annotation-source trinotate)
+          elif [ -n "$GAF" ]; then
+            go_src=(--gene-annotation-source gaf)
+          fi
+          # The runner's cache is fresh, so the KEGG dates queried now describe
+          # this build (--query-source-versions). Inputs are recorded as
+          # submitted; the derived label and date are in the release tag.
+          python scripts/run_annotation_manifest.py --out "$out" --cache data \
+            --release-tag "$tag" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            "${go_src[@]}" --query-source-versions \
+            --input workflow=build-rna-annotation --input "project=$PROJECT" \
+            --input "omics=$OMICS" --input "id_label=$ID_LABEL" \
+            --input "kegg_org=$KEGG_ORG" --input "ncbi_assembly=$NCBI_ASSEMBLY" \
+            --input "date=$IN_DATE" --input "strip_isoform=$STRIP"
+          built+=(manifest.json)
+
           zip="${tag}.zip"
           ( cd "$out" && zip -r "../$zip" . )
 
@@ -274,6 +297,7 @@ jobs:
             echo
             echo "## Provenance"
             echo "- Built by commit ${GITHUB_SHA} in run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- manifest.json (also inside the zip): each file's sha256, and the GO ontology version, gene -> GO source and KEGG database dates it was built from"
             echo "- Inputs (annotation_inputs/${PROJECT}/, sha256):"
             # List the id map only where it was applied (GAF / kegg_org).
             map_files=()
